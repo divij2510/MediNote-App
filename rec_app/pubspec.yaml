@@ -1,0 +1,45 @@
+name: rec_app
+description: Medical transcription app for doctors
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio recording and processing
+  audio_waveforms:
+
+  # Background services - Latest stable
+  flutter_foreground_task: ^8.17.0
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # HTTP requests
+  http: ^1.2.1
+  dio: ^5.7.0
+
+  # File operations
+  path_provider: ^2.1.4
+
+  # Network connectivity - Fixed version
+  connectivity_plus:
+
+  # State management
+  provider: ^6.1.2
+
+  # UI components
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
