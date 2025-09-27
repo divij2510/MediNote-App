@@ -15,16 +15,14 @@ class SupabaseService:
         """Initialize Supabase client if credentials are available"""
         try:
             if settings.supabase_url and settings.supabase_service_role_key:
-                # Updated client initialization - removed proxy parameter
+                # Simple client initialization without extra parameters
                 self.supabase = create_client(
-                    supabase_url=settings.supabase_url,
-                    supabase_key=settings.supabase_service_role_key
+                    settings.supabase_url,
+                    settings.supabase_service_role_key
                 )
                 logger.info("Supabase client initialized successfully")
             else:
                 logger.warning("Supabase credentials not found, using mock storage")
-                logger.warning(f"SUPABASE_URL: {bool(settings.supabase_url)}")
-                logger.warning(f"SUPABASE_SERVICE_ROLE_KEY: {bool(settings.supabase_service_role_key)}")
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
             logger.warning("Falling back to mock storage")
@@ -39,13 +37,7 @@ class SupabaseService:
         """Upload audio chunk to Supabase Storage"""
         try:
             if not self.supabase:
-                # Return mock response for development
-                return {
-                    "success": True,
-                    "url": f"https://mock-storage.supabase.co/storage/v1/object/public/{bucket_name}/{file_path}",
-                    "path": file_path,
-                    "mock": True
-                }
+                return self._mock_response(bucket_name, file_path)
             
             # Upload to Supabase Storage
             result = self.supabase.storage.from_(bucket_name).upload(
@@ -54,19 +46,15 @@ class SupabaseService:
                 file_options={"content-type": content_type}
             )
             
-            if hasattr(result, 'status_code') and result.status_code == 200:
-                # Get public URL
-                public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                
-                return {
-                    "success": True,
-                    "url": public_url,
-                    "path": file_path,
-                    "mock": False
-                }
-            else:
-                logger.error(f"Upload failed: {result}")
-                return self._mock_response(bucket_name, file_path)
+            # Get public URL
+            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+            
+            return {
+                "success": True,
+                "url": public_url,
+                "path": file_path,
+                "mock": False
+            }
                 
         except Exception as e:
             logger.error(f"Error uploading to Supabase Storage: {e}")
@@ -83,12 +71,9 @@ class SupabaseService:
             if not self.supabase:
                 return self._mock_presigned_response(bucket_name, file_path)
             
-            # For Supabase, we can use the direct upload approach
-            # Generate public URL for the file
+            # For Supabase, generate public URL
             public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
             
-            # For MVP, return the public URL as the upload URL
-            # In production, you'd implement proper signed URLs
             return {
                 "success": True,
                 "presigned_url": public_url,  # Simplified for MVP
