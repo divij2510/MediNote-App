@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, Date, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, date
 import uuid
 
@@ -9,7 +10,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -21,9 +22,9 @@ class User(Base):
 class Patient(Base):
     __tablename__ = "patients"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     pronouns = Column(String, nullable=True)
     email = Column(String, nullable=True)
     background = Column(Text, nullable=True)
@@ -40,10 +41,10 @@ class Patient(Base):
 class Template(Base):
     __tablename__ = "templates"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String, nullable=False)
     type = Column(String, default="custom")
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -53,9 +54,9 @@ class Template(Base):
 class Session(Base):
     __tablename__ = "sessions"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    patient_id = Column(String, ForeignKey("patients.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
     patient_name = Column(String, nullable=False)
     session_title = Column(String, nullable=True)
     session_summary = Column(Text, nullable=True)
@@ -66,7 +67,7 @@ class Session(Base):
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime, nullable=True)
     duration = Column(String, nullable=True)
-    template_id = Column(String, ForeignKey("templates.id"), nullable=True)
+    template_id = Column(UUID(as_uuid=True), ForeignKey("templates.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -78,8 +79,8 @@ class Session(Base):
 class AudioChunk(Base):
     __tablename__ = "audio_chunks"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_id = Column(String, ForeignKey("sessions.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False)
     chunk_number = Column(Integer, nullable=False)
     gcs_path = Column(String, nullable=False)
     public_url = Column(String, nullable=True)

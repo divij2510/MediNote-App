@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, date
+import uuid
 
 # User schemas
 class UserBase(BaseModel):
@@ -10,7 +11,7 @@ class UserCreate(UserBase):
     pass
 
 class User(UserBase):
-    id: str
+    id: str = Field(..., description="UUID as string")
     created_at: datetime
     
     class Config:
@@ -28,11 +29,11 @@ class PatientBase(BaseModel):
     previous_treatment: Optional[str] = None
 
 class PatientCreate(PatientBase):
-    userId: str
+    userId: str = Field(..., description="User UUID as string")
 
 class PatientResponse(PatientBase):
-    id: str
-    user_id: str
+    id: str = Field(..., description="UUID as string")
+    user_id: str = Field(..., description="User UUID as string")
     created_at: datetime
     
     class Config:
@@ -47,11 +48,11 @@ class TemplateBase(BaseModel):
     type: str = "custom"
 
 class TemplateCreate(TemplateBase):
-    user_id: Optional[str] = None
+    user_id: Optional[str] = Field(None, description="User UUID as string")
 
 class Template(TemplateBase):
-    id: str
-    user_id: Optional[str]
+    id: str = Field(..., description="UUID as string")
+    user_id: Optional[str] = Field(None, description="User UUID as string")
     created_at: datetime
     
     class Config:
@@ -59,17 +60,17 @@ class Template(TemplateBase):
 
 # Session schemas
 class SessionCreate(BaseModel):
-    patientId: str
-    userId: str
+    patientId: str = Field(..., description="Patient UUID as string")
+    userId: str = Field(..., description="User UUID as string")
     patientName: str
     status: str = "recording"
     startTime: datetime
-    templateId: Optional[str] = None
+    templateId: Optional[str] = Field(None, description="Template UUID as string")
 
 class SessionResponse(BaseModel):
-    id: str
-    user_id: str
-    patient_id: str
+    id: str = Field(..., description="UUID as string")
+    user_id: str = Field(..., description="User UUID as string")
+    patient_id: str = Field(..., description="Patient UUID as string")
     patient_name: str
     session_title: Optional[str]
     session_summary: Optional[str]
@@ -80,7 +81,7 @@ class SessionResponse(BaseModel):
     start_time: datetime
     end_time: Optional[datetime]
     duration: Optional[str]
-    template_id: Optional[str]
+    template_id: Optional[str] = Field(None, description="Template UUID as string")
     
     class Config:
         from_attributes = True
@@ -98,7 +99,7 @@ class SessionWithPatientDetails(SessionResponse):
 
 # Audio chunk schemas
 class ChunkUploadRequest(BaseModel):
-    sessionId: str
+    sessionId: str = Field(..., description="Session UUID as string")
     chunkNumber: int
     mimeType: str
 
@@ -108,7 +109,7 @@ class ChunkUploadResponse(BaseModel):
     publicUrl: Optional[str] = None
 
 class ChunkNotification(BaseModel):
-    sessionId: str
+    sessionId: str = Field(..., description="Session UUID as string")
     gcsPath: str
     chunkNumber: int
     isLast: bool

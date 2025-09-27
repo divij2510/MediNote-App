@@ -10,9 +10,7 @@ import '../models/session.dart';
 import '../models/audio_chunk.dart';
 
 class ApiService extends ChangeNotifier {
-  static const String baseUrl = 'https://api.example.com'; // Replace with actual API URL
-  static const String backendUrl = 'https://backend.example.com'; // Replace with actual backend URL
-
+  static const String baseUrl = 'https://medinote-app-backend-api.onrender.com';
   final Dio _dio = Dio();
   String? _authToken;
   bool _isConnected = true;
@@ -61,7 +59,7 @@ class ApiService extends ChangeNotifier {
 
   Future<String?> getUserIdByEmail(String email) async {
     try {
-      final response = await _dio.get('/users/asd3fd2faec', queryParameters: {
+      final response = await _dio.get('/users/resolve', queryParameters: {
         'email': email,
       });
 
@@ -194,7 +192,7 @@ class ApiService extends ChangeNotifier {
         'patientName': session.patientName,
         'status': session.status,
         'startTime': session.startTime.toIso8601String(),
-        'templateId': session.templateId ?? 'new_patient_visit',
+        if (session.templateId != null) 'templateId': session.templateId,
       });
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -231,7 +229,7 @@ class ApiService extends ChangeNotifier {
       final gcsPath = presignedData['gcsPath'] as String;
       final publicUrl = presignedData['publicUrl'] as String;
 
-      // Step 2: Upload to Google Cloud Storage
+      // Step 2: Upload to Supabase Storage (or mock storage)
       final uploadResponse = await http.put(
         Uri.parse(uploadUrl),
         headers: {
@@ -240,7 +238,9 @@ class ApiService extends ChangeNotifier {
         body: chunk.data,
       );
 
-      if (uploadResponse.statusCode != 200) {
+      // Accept both 200 and 201 status codes for successful upload
+      if (uploadResponse.statusCode != 200 && uploadResponse.statusCode != 201) {
+        debugPrint('Upload failed with status: ${uploadResponse.statusCode}');
         return false;
       }
 
@@ -273,7 +273,8 @@ class ApiService extends ChangeNotifier {
 
   Future<bool> updateSessionStatus(String sessionId, String status, int totalChunks) async {
     try {
-      // This endpoint might not exist in the API, but we'll implement it for completeness
+      // Note: This endpoint doesn't exist in the current backend
+      // But we keep it for future compatibility
       final response = await _dio.patch('/v1/session/$sessionId', data: {
         'status': status,
         'totalChunks': totalChunks,
