@@ -1,16 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import engine
-from . import models
 from .routes import users, patients, templates, sessions
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="MediNote API",
@@ -39,42 +34,65 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "message": "API is operational"}
+    """Health check endpoint that doesn't require database connection"""
+    from .config import settings
+    return {
+        "status": "healthy", 
+        "message": "API is operational",
+        "database_configured": bool(settings.database_url),
+        "supabase_configured": bool(settings.supabase_url and settings.supabase_service_role_key)
+    }
 
-# Startup event to create default templates
+# Startup event to initialize database and create default templates
 @app.on_event("startup")
 async def startup_event():
     logger.info("MediNote API starting up...")
     
-    # Create default system templates
-    from .database import SessionLocal
-    from . import crud, schemas
-    
-    db = SessionLocal()
     try:
-        # Check if system templates already exist
-        existing_templates = db.query(models.Template).filter(
-            models.Template.user_id.is_(None)
-        ).first()
+        # Try to initialize database
+        from .database import engine
+        from . import models
         
-        if not existing_templates:
-            # Create default system templates
-            default_templates = [
-                {"title": "New Patient Visit", "type": "default"},
-                {"title": "Follow-up Visit", "type": "predefined"},
-                {"title": "Consultation", "type": "predefined"},
-                {"title": "Emergency Visit", "type": "predefined"}
-            ]
+        # Create database tables
+        models.Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
+        
+        # Create default system templates
+        from .database import SessionLocal
+        from . import crud, schemas
+        
+        db = SessionLocal()
+        try:
+            # Check if system templates already exist
+            existing_templates = db.query(models.Template).filter(
+                models.Template.user_id.is_(None)
+            ).first()
             
-            for template_data in default_templates:
-                template_create = schemas.TemplateCreate(**template_data, user_id=None)
-                crud.create_template(db, template_create)
+            if not existing_templates:
+                # Create default system templates
+                default_templates = [
+                    {"title": "New Patient Visit", "type": "default"},
+                    {"title": "Follow-up Visit", "type": "predefined"},
+                    {"title": "Consultation", "type": "predefined"},
+                    {"title": "Emergency Visit", "type": "predefined"}
+                ]
+                
+                for template_data in default_templates:
+                    template_create = schemas.TemplateCreate(**template_data, user_id=None)
+                    crud.create_template(db, template_create)
+                
+                logger.info("Created default system templates")
+            else:
+                logger.info("Default templates already exist")
+                
+        except Exception as e:
+            logger.error(f"Error creating default templates: {e}")
+        finally:
+            db.close()
             
-            logger.info("Created default system templates")
     except Exception as e:
-        logger.error(f"Error creating default templates: {e}")
-    finally:
-        db.close()
+        logger.error(f"Database initialization failed: {e}")
+        logger.warning("API will run in limited mode without database")
     
     logger.info("MediNote API startup complete")
 
