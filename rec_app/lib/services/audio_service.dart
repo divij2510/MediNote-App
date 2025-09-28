@@ -51,11 +51,13 @@ class AudioService extends ChangeNotifier {
   Duration _playbackDuration = Duration.zero;
   List<String> _playbackUrls = [];
   int _currentChunkIndex = 0;
+  bool _isLoadingPlayback = false;
 
   RecordingState get recordingState => _recordingState;
   RecordingSession? get currentSession => _currentSession;
   List<AudioChunk> get pendingChunks => List.unmodifiable(_pendingChunks);
   double get currentAmplitude => _currentAmplitude;
+  bool get isLoadingPlayback => _isLoadingPlayback;
   double get gainLevel => _gainLevel;
   Duration get recordingDuration => _recordingDuration;
   bool get isRecording => _recordingState == RecordingState.recording;
@@ -65,6 +67,7 @@ class AudioService extends ChangeNotifier {
   // Playback getters
   bool get isPlaying => _isPlaying;
   Duration get playbackPosition => _playbackPosition;
+  List<String> get playbackUrls => List.unmodifiable(_playbackUrls);
   Duration get playbackDuration => _playbackDuration;
   int get currentChunkIndex => _currentChunkIndex;
   int get totalPlaybackChunks => _playbackUrls.length;
@@ -410,15 +413,19 @@ class AudioService extends ChangeNotifier {
       }
 
       // Start recording again with a new file
-      _currentRecordingPath = '${directory.path}/recording_${_currentSession!.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _audioRecorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          sampleRate: 44100,
-          bitRate: 128000,
-        ),
-        path: _currentRecordingPath!,
-      );
+      if (_currentSession != null) {
+        _currentRecordingPath = '${directory.path}/recording_${_currentSession!.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            sampleRate: 44100,
+            bitRate: 128000,
+          ),
+          path: _currentRecordingPath!,
+        );
+      } else {
+        debugPrint('Warning: _currentSession is null, cannot restart recording');
+      }
 
       notifyListeners();
     } catch (e) {
@@ -579,20 +586,16 @@ class AudioService extends ChangeNotifier {
       // Stop any current playback first
       await stopPlayback();
       
-      // Create merged audio file for smooth playback
-      final mergedFile = await _createMergedAudioFile();
-      if (mergedFile != null) {
-        debugPrint('Playing merged audio file: ${mergedFile.path}');
-        await _audioPlayer.setFilePath(mergedFile.path);
-        await _audioPlayer.play();
-        _isPlaying = true;
-        notifyListeners();
-      } else {
-        debugPrint('Failed to create merged audio file, falling back to sequential playback');
-        await _playAllChunksSequentially();
-      }
+      _isLoadingPlayback = true;
+      notifyListeners();
+      
+      debugPrint('Starting sequential playback of ${_playbackUrls.length} chunks');
+      await _playAllChunksSequentially();
     } catch (e) {
       debugPrint('Error playing session: $e');
+    } finally {
+      _isLoadingPlayback = false;
+      notifyListeners();
     }
   }
 
@@ -600,34 +603,30 @@ class AudioService extends ChangeNotifier {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final mergedFilePath = '${directory.path}/merged_session_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      final mergedFile = File(mergedFilePath);
       
       if (_playbackUrls.isEmpty) {
         debugPrint('No playback URLs available for merging');
         return null;
       }
 
-      debugPrint('Downloading and merging ${_playbackUrls.length} audio chunks...');
+      debugPrint('Downloading ${_playbackUrls.length} audio chunks for sequential playback...');
       
-      // Download all chunks and concatenate them
-      final List<List<int>> chunkData = [];
-      int totalBytes = 0;
+      // Download all chunks to local files
+      final List<String> localChunkPaths = [];
       
       for (int i = 0; i < _playbackUrls.length; i++) {
         final url = _playbackUrls[i];
+        final chunkPath = '${directory.path}/chunk_${i + 1}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        
         debugPrint('Downloading chunk ${i + 1}/${_playbackUrls.length}: $url');
         
         try {
           final response = await http.get(Uri.parse(url));
-          if (response.statusCode == 200) {
-            final bytes = response.bodyBytes;
-            if (bytes.isNotEmpty) {
-              chunkData.add(bytes);
-              totalBytes += bytes.length;
-              debugPrint('Chunk ${i + 1}: ${bytes.length} bytes');
-            } else {
-              debugPrint('Chunk ${i + 1}: Empty data, skipping');
-            }
+          if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+            final chunkFile = File(chunkPath);
+            await chunkFile.writeAsBytes(response.bodyBytes);
+            localChunkPaths.add(chunkPath);
+            debugPrint('Chunk ${i + 1}: ${response.bodyBytes.length} bytes saved to $chunkPath');
           } else {
             debugPrint('Failed to download chunk ${i + 1}: ${response.statusCode}');
           }
@@ -636,20 +635,35 @@ class AudioService extends ChangeNotifier {
         }
       }
       
-      if (chunkData.isEmpty) {
-        debugPrint('No valid chunk data to merge');
+      if (localChunkPaths.isEmpty) {
+        debugPrint('No valid chunks downloaded');
         return null;
       }
       
-      // Concatenate all chunks into one file
-      final mergedBytes = <int>[];
-      for (final chunk in chunkData) {
-        mergedBytes.addAll(chunk);
+      // For now, return the first chunk as a simple solution
+      // In a real implementation, you'd use FFmpeg to properly merge the chunks
+      final firstChunkPath = localChunkPaths.first;
+      final firstChunkFile = File(firstChunkPath);
+      
+      if (firstChunkFile.existsSync()) {
+        // Copy first chunk to merged file location
+        final mergedFile = File(mergedFilePath);
+        await firstChunkFile.copy(mergedFilePath);
+        
+        // Clean up temporary chunk files
+        for (final chunkPath in localChunkPaths) {
+          try {
+            await File(chunkPath).delete();
+          } catch (e) {
+            debugPrint('Error cleaning up chunk file $chunkPath: $e');
+          }
+        }
+        
+        debugPrint('Created merged file with ${localChunkPaths.length} chunks (using first chunk as placeholder)');
+        return mergedFile;
       }
       
-      await mergedFile.writeAsBytes(mergedBytes);
-      debugPrint('Created merged file with ${mergedBytes.length} bytes from ${chunkData.length} chunks');
-      return mergedFile;
+      return null;
     } catch (e) {
       debugPrint('Error creating merged audio file: $e');
       return null;

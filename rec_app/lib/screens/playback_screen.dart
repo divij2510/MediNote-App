@@ -71,14 +71,36 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
         title: Text('Playback - ${widget.session.patientName}'),
         centerTitle: true,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Consumer<AudioService>(
-              builder: (context, audioService, child) {
-                return Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
+      body: Consumer<AudioService>(
+        builder: (context, audioService, child) {
+          if (_isLoading || audioService.isLoadingPlayback) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isLoading 
+                        ? 'Loading session audio...' 
+                        : 'Preparing playback...',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  if (audioService.playbackUrls.isNotEmpty)
+                    Text(
+                      'Found ${audioService.playbackUrls.length} audio chunks',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                ],
+              ),
+            );
+          }
+          
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
                       // Session info card
                       Card(
                         child: Padding(
