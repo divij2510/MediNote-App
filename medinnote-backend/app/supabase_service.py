@@ -32,42 +32,23 @@ class SupabaseService:
             if not self.supabase:
                 return self._local_storage_response(bucket_name, file_path)
             
-            # For production, create a signed upload URL
-            try:
-                signed_url_response = self.supabase.storage.from_(bucket_name).create_signed_upload_url(file_path)
-                
-                if signed_url_response and 'signedURL' in signed_url_response:
-                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                    
-                    return {
-                        "success": True,
-                        "presigned_url": signed_url_response['signedURL'],
-                        "public_url": public_url,
-                        "path": file_path,
-                        "headers": {
-                            "Authorization": f"Bearer {settings.supabase_anon_key}",
-                            "x-upsert": "true"
-                        }
-                    }
-                else:
-                    raise Exception("Failed to create signed URL")
-                    
-            except Exception as e:
-                logger.warning(f"Signed URL creation failed, using direct upload: {e}")
-                # Fallback to direct upload URL
-                public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                upload_url = f"{settings.supabase_url}/storage/v1/object/{bucket_name}/{file_path}"
-                
-                return {
-                    "success": True,
-                    "presigned_url": upload_url,
-                    "public_url": public_url,
-                    "path": file_path,
-                    "headers": {
-                        "Authorization": f"Bearer {settings.supabase_anon_key}",
-                        "Content-Type": "audio/mpeg"
-                    }
+            # Use direct upload URL (bypass signed URL issues)
+            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+            upload_url = f"{settings.supabase_url}/storage/v1/object/{bucket_name}/{file_path}"
+            
+            logger.info(f"Using direct upload URL: {upload_url}")
+            
+            return {
+                "success": True,
+                "presigned_url": upload_url,
+                "public_url": public_url,
+                "path": file_path,
+                "headers": {
+                    "Authorization": f"Bearer {settings.supabase_anon_key}",
+                    "Content-Type": "audio/mpeg",
+                    "x-upsert": "true"
                 }
+            }
                 
         except Exception as e:
             logger.error(f"Error generating presigned URL: {e}")
