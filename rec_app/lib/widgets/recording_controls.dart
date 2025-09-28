@@ -7,6 +7,7 @@ import '../models/patient.dart';
 import '../models/session.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/realtime_streaming_service.dart';
 
 class RecordingControls extends StatefulWidget {
   final Patient patient;
@@ -27,8 +28,8 @@ class _RecordingControlsState extends State<RecordingControls> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<AudioService, ApiService>(
-      builder: (context, audioService, apiService, child) {
+    return Consumer3<AudioService, ApiService, RealtimeStreamingService>(
+      builder: (context, audioService, apiService, streamingService, child) {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -237,7 +238,7 @@ class _RecordingControlsState extends State<RecordingControls> {
     }
   }
 
-  Future<void> _handleMainButtonTap(AudioService audioService, ApiService apiService) async {
+  Future<void> _handleMainButtonTap(AudioService audioService, ApiService apiService, RealtimeStreamingService streamingService) async {
     // Enhanced haptic feedback
     if (audioService.recordingState == RecordingState.idle) {
       HapticFeedback.mediumImpact();
@@ -246,14 +247,14 @@ class _RecordingControlsState extends State<RecordingControls> {
     }
 
     if (audioService.recordingState == RecordingState.idle) {
-      await _startRecording(audioService, apiService);
+      await _startRecording(audioService, apiService, streamingService);
     } else if (audioService.recordingState == RecordingState.recording ||
         audioService.recordingState == RecordingState.paused) {
       await _handleStop(audioService);
     }
   }
 
-  Future<void> _startRecording(AudioService audioService, ApiService apiService) async {
+  Future<void> _startRecording(AudioService audioService, ApiService apiService, RealtimeStreamingService streamingService) async {
     if (_isStarting) {
       debugPrint('Already starting recording, ignoring duplicate request');
       return;
@@ -295,11 +296,14 @@ class _RecordingControlsState extends State<RecordingControls> {
         // templateId: session.templateId,
       );
 
-      // Start recording
-      final success = await audioService.startRecording(updatedSession);
+      // Start real-time streaming instead of regular recording
+      final success = await streamingService.startStreamingSession(updatedSession);
       if (!success) {
-        throw Exception('Failed to start recording');
+        throw Exception('Failed to start streaming session');
       }
+      
+      // Also start regular recording as backup
+      await audioService.startRecording(updatedSession);
 
       HapticFeedback.mediumImpact();
     } catch (e) {

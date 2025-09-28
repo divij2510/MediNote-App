@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/session.dart';
-import '../services/realtime_audio_service.dart';
+import '../services/realtime_streaming_service.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/audio_visualizer.dart';
@@ -23,7 +23,7 @@ class RealtimeRecordingScreen extends StatefulWidget {
 
 class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     with TickerProviderStateMixin {
-  late RealtimeAudioService _audioService;
+  late RealtimeStreamingService _streamingService;
   late ApiService _apiService;
   late StorageService _storageService;
   
@@ -46,7 +46,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
   void _initializeServices() {
     _apiService = Provider.of<ApiService>(context, listen: false);
     _storageService = Provider.of<StorageService>(context, listen: false);
-    _audioService = Provider.of<RealtimeAudioService>(context, listen: false);
+    _streamingService = Provider.of<RealtimeStreamingService>(context, listen: false);
   }
   
   void _initializeAnimations() {
@@ -81,11 +81,11 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
   
   Future<void> _startRecording() async {
     try {
-      // Initialize audio service
-      _audioService.initialize(_apiService, _storageService);
+      // Initialize streaming service
+      _streamingService.initialize(_apiService, _storageService);
       
       // Start streaming session
-      final success = await _audioService.startStreamingSession(widget.session);
+      final success = await _streamingService.startStreamingSession(widget.session);
       
       if (success) {
         setState(() {
@@ -138,13 +138,13 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
           ),
         ],
       ),
-      body: Consumer<RealtimeAudioService>(
-        builder: (context, audioService, child) {
+      body: Consumer<RealtimeStreamingService>(
+        builder: (context, streamingService, child) {
           if (!_isInitialized) {
             return _buildLoadingScreen();
           }
           
-          return _buildRecordingScreen(audioService);
+          return _buildRecordingScreen(streamingService);
         },
       ),
     );
@@ -177,27 +177,27 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     );
   }
   
-  Widget _buildRecordingScreen(RealtimeAudioService audioService) {
+  Widget _buildRecordingScreen(RealtimeStreamingService streamingService) {
     return Column(
       children: [
         // Status bar
-        _buildStatusBar(audioService),
+        _buildStatusBar(streamingService),
         
         // Main recording area
         Expanded(
-          child: _buildMainRecordingArea(audioService),
+          child: _buildMainRecordingArea(streamingService),
         ),
         
         // Gain control (if visible)
-        if (_showGainControl) _buildGainControl(audioService),
+        if (_showGainControl) _buildGainControl(streamingService),
         
         // Controls
-        _buildControls(audioService),
+        _buildControls(streamingService),
       ],
     );
   }
   
-  Widget _buildStatusBar(RealtimeAudioService audioService) {
+  Widget _buildStatusBar(RealtimeStreamingService streamingService) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -215,7 +215,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
             height: 12,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: _getStatusColor(audioService.streamingState),
+              color: _getStatusColor(streamingService.streamingState),
             ),
           ),
           const SizedBox(width: 12),
@@ -223,7 +223,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
           // Status text
           Expanded(
             child: Text(
-              _getStatusText(audioService.streamingState),
+              _getStatusText(streamingService.streamingState),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w500,
@@ -233,7 +233,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
           
           // Duration
           Text(
-            _formatDuration(audioService.streamingDuration),
+            _formatDuration(streamingService.streamingDuration),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -245,7 +245,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     );
   }
   
-  Widget _buildMainRecordingArea(RealtimeAudioService audioService) {
+  Widget _buildMainRecordingArea(RealtimeStreamingService streamingService) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(32),
@@ -255,7 +255,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
           // Audio visualizer
           Expanded(
             flex: 3,
-            child: _buildAudioVisualizer(audioService),
+            child: _buildAudioVisualizer(streamingService),
           ),
           
           const SizedBox(height: 32),
@@ -270,13 +270,15 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     );
   }
   
-  Widget _buildAudioVisualizer(RealtimeAudioService audioService) {
+  Widget _buildAudioVisualizer(RealtimeStreamingService streamingService) {
     return AnimatedBuilder(
       animation: _pulseAnimation,
       builder: (context, child) {
         return Transform.scale(
-          scale: audioService.isStreaming ? _pulseAnimation.value : 1.0,
-          child: const AudioVisualizer(),
+          scale: streamingService.isStreaming ? _pulseAnimation.value : 1.0,
+          child: AudioVisualizer(
+            amplitude: streamingService.currentAmplitude,
+          ),
         );
       },
     );
@@ -312,7 +314,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     );
   }
   
-  Widget _buildGainControl(RealtimeAudioService audioService) {
+  Widget _buildGainControl(RealtimeStreamingService streamingService) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -333,21 +335,21 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
               ),
               const Spacer(),
               Text(
-                '${(audioService.gainLevel * 100).round()}%',
+                '${(streamingService.gainLevel * 100).round()}%',
                 style: const TextStyle(color: Colors.white),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Slider(
-            value: audioService.gainLevel,
+            value: streamingService.gainLevel,
             min: 0.1,
             max: 3.0,
             divisions: 29,
             activeColor: Colors.red,
             inactiveColor: Colors.grey[600],
             onChanged: (value) {
-              audioService.setGainLevel(value);
+              streamingService.setGainLevel(value);
             },
           ),
         ],
@@ -355,7 +357,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     );
   }
   
-  Widget _buildControls(RealtimeAudioService audioService) {
+  Widget _buildControls(RealtimeStreamingService streamingService) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -369,10 +371,10 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
         children: [
           // Pause/Resume button
           _buildControlButton(
-            icon: audioService.isPaused ? Icons.play_arrow : Icons.pause,
-            label: audioService.isPaused ? 'Resume' : 'Pause',
-            color: audioService.isPaused ? Colors.green : Colors.orange,
-            onPressed: audioService.isPaused
+            icon: streamingService.isPaused ? Icons.play_arrow : Icons.pause,
+            label: streamingService.isPaused ? 'Resume' : 'Pause',
+            color: streamingService.isPaused ? Colors.green : Colors.orange,
+            onPressed: streamingService.isPaused
                 ? () => _resumeRecording()
                 : () => _pauseRecording(),
           ),
@@ -496,7 +498,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
   
   Future<void> _pauseRecording() async {
     try {
-      await _audioService.pauseStreaming();
+      await _streamingService.pauseStreaming();
       
       // Haptic feedback
       HapticFeedback.lightImpact();
@@ -507,7 +509,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
   
   Future<void> _resumeRecording() async {
     try {
-      await _audioService.resumeStreaming();
+      await _streamingService.resumeStreaming();
       
       // Haptic feedback
       HapticFeedback.lightImpact();
@@ -518,7 +520,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
   
   Future<void> _stopRecording() async {
     try {
-      await _audioService.stopStreaming();
+      await _streamingService.stopStreaming();
       
       // Haptic feedback
       HapticFeedback.mediumImpact();
@@ -577,7 +579,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
                 style: TextStyle(color: Colors.white),
               ),
               trailing: Text(
-                _audioService.isBluetoothConnected ? 'Connected' : 'Not Connected',
+                _streamingService.isBluetoothConnected ? 'Connected' : 'Not Connected',
                 style: const TextStyle(color: Colors.grey),
               ),
             ),
@@ -590,7 +592,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
                 style: TextStyle(color: Colors.white),
               ),
               trailing: Text(
-                _audioService.isWiredHeadsetConnected ? 'Connected' : 'Not Connected',
+                _streamingService.isWiredHeadsetConnected ? 'Connected' : 'Not Connected',
                 style: const TextStyle(color: Colors.grey),
               ),
             ),

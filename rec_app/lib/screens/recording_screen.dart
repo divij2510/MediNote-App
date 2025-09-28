@@ -87,6 +87,41 @@ class _RecordingScreenState extends State<RecordingScreen>
               if (shouldPop) Navigator.pop(context);
             }),
           ),
+          actions: [
+            // Remove the play button - not needed for recording screen
+            Consumer<AudioService>(
+              builder: (context, audioService, child) {
+                if (audioService.recordingState == RecordingState.recording) {
+                  return Container(
+                    margin: const EdgeInsets.only(right: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'REC',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
         ),
         body: _buildBody(),
       ),
