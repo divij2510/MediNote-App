@@ -88,10 +88,9 @@ async def get_presigned_url(
     file_path = f"sessions/{request.sessionId}/chunk_{request.chunkNumber}.{file_extension}"
     
     # Use Supabase for presigned URL generation
-    bucket_name = "medinnote-audio"
     result = supabase_service.generate_presigned_url(
-        bucket_name=bucket_name,
         file_path=file_path,
+        bucket_name="recording_app",
         expires_in=3600
     )
     
