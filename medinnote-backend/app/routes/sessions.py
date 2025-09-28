@@ -11,6 +11,44 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def convert_session_to_dict(session):
+    """Convert SQLAlchemy session model to dict with string UUIDs"""
+    if not session:
+        return None
+    return {
+        "id": str(session.id),
+        "user_id": str(session.user_id),
+        "patient_id": str(session.patient_id),
+        "patient_name": session.patient_name,
+        "session_title": session.session_title,
+        "session_summary": session.session_summary,
+        "transcript": session.transcript,
+        "transcript_status": session.transcript_status,
+        "status": session.status,
+        "date": session.date,
+        "start_time": session.start_time,
+        "end_time": session.end_time,
+        "duration": session.duration,
+        "template_id": str(session.template_id) if session.template_id else None
+    }
+
+def convert_session_with_patient_to_dict(session, patient):
+    """Convert session with patient details to dict"""
+    base_dict = convert_session_to_dict(session)
+    if base_dict and patient:
+        base_dict.update({
+            "pronouns": patient.pronouns,
+            "email": patient.email,
+            "background": patient.background,
+            "medical_history": patient.medical_history,
+            "family_history": patient.family_history,
+            "social_history": patient.social_history,
+            "previous_treatment": patient.previous_treatment,
+            "patient_pronouns": patient.pronouns,
+            "clinical_notes": []
+        })
+    return base_dict
+
 @router.post("/v1/upload-session")
 async def start_recording_session(
     session: schemas.SessionCreate,
@@ -28,8 +66,10 @@ async def start_recording_session(
     
     # Create session
     db_session = crud.create_session(db, session)
+    if not db_session:
+        raise HTTPException(status_code=400, detail="Failed to create session")
     
-    return {"id": db_session.id}
+    return {"id": str(db_session.id)}
 
 @router.post("/v1/get-presigned-url", response_model=schemas.ChunkUploadResponse)
 async def get_presigned_url(
@@ -109,7 +149,9 @@ async def get_sessions_by_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
     
     sessions = crud.get_sessions_by_patient_id(db, patient_id=patient_id)
-    return schemas.SessionsResponse(sessions=sessions)
+    sessions_dict = [convert_session_to_dict(s) for s in sessions]
+    
+    return schemas.SessionsResponse(sessions=sessions_dict)
 
 @router.get("/v1/all-session", response_model=schemas.AllSessionsResponse)
 async def get_all_sessions(
@@ -131,42 +173,18 @@ async def get_all_sessions(
     
     for session in sessions:
         # Get patient details
-        patient = crud.get_patient_by_id(db, patient_id=session.patient_id)
+        patient = crud.get_patient_by_id(db, patient_id=str(session.patient_id))
         
         if patient:
             # Add to patient map
-            patient_map[patient.id] = {
+            patient_map[str(patient.id)] = {
                 "name": patient.name,
                 "pronouns": patient.pronouns
             }
             
-            # Create enriched session with patient details
-            enriched_session = schemas.SessionWithPatientDetails(
-                id=session.id,
-                user_id=session.user_id,
-                patient_id=session.patient_id,
-                patient_name=session.patient_name,
-                session_title=session.session_title,
-                session_summary=session.session_summary,
-                transcript=session.transcript,
-                transcript_status=session.transcript_status,
-                status=session.status,
-                date=session.date,
-                start_time=session.start_time,
-                end_time=session.end_time,
-                duration=session.duration,
-                template_id=session.template_id,
-                pronouns=patient.pronouns,
-                email=patient.email,
-                background=patient.background,
-                medical_history=patient.medical_history,
-                family_history=patient.family_history,
-                social_history=patient.social_history,
-                previous_treatment=patient.previous_treatment,
-                patient_pronouns=patient.pronouns,
-                clinical_notes=[]
-            )
-            enriched_sessions.append(enriched_session)
+            # Convert session with patient details
+            session_dict = convert_session_with_patient_to_dict(session, patient)
+            enriched_sessions.append(session_dict)
     
     return schemas.AllSessionsResponse(
         sessions=enriched_sessions,

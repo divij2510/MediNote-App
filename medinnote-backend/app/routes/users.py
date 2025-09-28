@@ -19,4 +19,4 @@ async def get_user_by_email(
         user_create = schemas.UserCreate(email=email)
         user = crud.create_user(db, user_create)
     
-    return {"id": user.id}
+    return {"id": str(user.id)}

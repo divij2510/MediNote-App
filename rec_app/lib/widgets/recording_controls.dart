@@ -257,7 +257,7 @@ class _RecordingControlsState extends State<RecordingControls> {
       final session = RecordingSession(
         id: '', // Will be set by API
         patientId: widget.patient.id,
-        userId: 'user_123', // Demo user ID
+        userId: '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1', // Demo user ID
         patientName: widget.patient.name,
         status: 'recording',
         startTime: DateTime.now(),

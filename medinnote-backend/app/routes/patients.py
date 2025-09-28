@@ -6,6 +6,24 @@ from ..database import get_db
 
 router = APIRouter()
 
+def convert_patient_to_dict(patient):
+    """Convert SQLAlchemy patient model to dict with string UUIDs"""
+    if not patient:
+        return None
+    return {
+        "id": str(patient.id),
+        "name": patient.name,
+        "user_id": str(patient.user_id),
+        "pronouns": patient.pronouns,
+        "email": patient.email,
+        "background": patient.background,
+        "medical_history": patient.medical_history,
+        "family_history": patient.family_history,
+        "social_history": patient.social_history,
+        "previous_treatment": patient.previous_treatment,
+        "created_at": patient.created_at
+    }
+
 @router.get("/v1/patients", response_model=schemas.PatientsResponse)
 async def get_patients(
     userId: str = Query(..., description="User ID"),
@@ -18,7 +36,11 @@ async def get_patients(
         raise HTTPException(status_code=404, detail="User not found")
     
     patients = crud.get_patients_by_user_id(db, user_id=userId)
-    return schemas.PatientsResponse(patients=patients)
+    
+    # Convert UUID objects to strings
+    patients_dict = [convert_patient_to_dict(p) for p in patients]
+    
+    return schemas.PatientsResponse(patients=patients_dict)
 
 @router.post("/v1/add-patient-ext")
 async def create_patient(
@@ -32,13 +54,15 @@ async def create_patient(
         raise HTTPException(status_code=404, detail="User not found")
     
     db_patient = crud.create_patient(db, patient)
+    if not db_patient:
+        raise HTTPException(status_code=400, detail="Failed to create patient")
     
-    # Return in the expected format
+    # Return in the expected format with string UUIDs
     return {
         "patient": {
-            "id": db_patient.id,
+            "id": str(db_patient.id),
             "name": db_patient.name,
-            "user_id": db_patient.user_id,
+            "user_id": str(db_patient.user_id),
             "pronouns": db_patient.pronouns
         }
     }
@@ -54,7 +78,7 @@ async def get_patient_details(
         raise HTTPException(status_code=404, detail="Patient not found")
     
     return {
-        "id": patient.id,
+        "id": str(patient.id),
         "name": patient.name,
         "pronouns": patient.pronouns,
         "email": patient.email,

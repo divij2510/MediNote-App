@@ -37,7 +37,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
     final apiService = context.read<ApiService>();
 
     // For demo purposes, using a default user ID
-    const userId = 'user_123';
+    const userId = '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1';
 
     try {
       setState(() {
@@ -257,7 +257,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
     });
 
     try {
-      const userId = 'user_123'; // Demo user ID
+      const userId = '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1'; // Demo user ID
       final patient = await apiService.addPatient(name, userId);
 
       if (patient != null) {
