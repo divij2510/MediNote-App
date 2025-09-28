@@ -5,6 +5,7 @@ import '../services/permission_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
 import '../services/storage_service.dart';
+import '../services/recording_test.dart';
 import 'patient_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -218,6 +219,45 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.all(16),
                     textStyle: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              
+              // Test button for debugging
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Testing microphone access...')),
+                    );
+                    
+                    final micTest = await RecordingTest.testMicrophoneAccess();
+                    if (micTest) {
+                      await RecordingTest.testAmplitudeMonitoring();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Microphone test completed - check console for results'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Microphone test failed - check permissions'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.mic),
+                  label: const Text('Test Microphone'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.all(16),
+                    textStyle: const TextStyle(fontSize: 16),
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ),

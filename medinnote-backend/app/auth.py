@@ -63,3 +63,16 @@ def create_or_get_user(email: str, db: Session):
         db.commit()
         db.refresh(user)
     return user
+
+# Simple authentication bypass for hardcoded user (MVP)
+def get_hardcoded_user(db: Session = Depends(get_db)):
+    """Get or create the hardcoded user for MVP"""
+    hardcoded_user_id = "9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1"
+    user = db.query(User).filter(User.id == hardcoded_user_id).first()
+    if not user:
+        # Create hardcoded user
+        user = User(id=hardcoded_user_id, email="mvp@medinote.com")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user

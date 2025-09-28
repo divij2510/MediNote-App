@@ -120,6 +120,46 @@ class ChunkNotification(BaseModel):
     selectedTemplateId: Optional[str] = None
     model: str = "fast"
 
+# Enhanced session management schemas
+class SessionResumeRequest(BaseModel):
+    sessionId: str = Field(..., description="Session UUID as string")
+    userId: str = Field(..., description="User UUID as string")
+
+class SessionResumeResponse(BaseModel):
+    sessionId: str
+    status: str
+    lastChunkNumber: int
+    totalChunksExpected: Optional[int]
+    isResumable: bool
+    missingChunks: List[int] = []
+    sessionInfo: dict
+
+class SessionPauseRequest(BaseModel):
+    sessionId: str = Field(..., description="Session UUID as string")
+    reason: Optional[str] = None  # "phone_call", "app_switch", "network_outage", etc.
+
+class SessionProgressResponse(BaseModel):
+    sessionId: str
+    status: str
+    chunksUploaded: int
+    totalChunksExpected: Optional[int]
+    progressPercentage: float
+    lastChunkNumber: int
+    missingChunks: List[int]
+    isComplete: bool
+    canResume: bool
+
+class ChunkRetryRequest(BaseModel):
+    sessionId: str = Field(..., description="Session UUID as string")
+    chunkNumber: int
+    reason: Optional[str] = None
+
+class SessionStatusUpdate(BaseModel):
+    sessionId: str = Field(..., description="Session UUID as string")
+    status: str  # recording, paused, completed, failed
+    lastChunkNumber: Optional[int] = None
+    totalChunksExpected: Optional[int] = None
+
 # Response schemas
 class PatientsResponse(BaseModel):
     patients: List[Patient]

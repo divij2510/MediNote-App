@@ -252,8 +252,8 @@ class _RecordingScreenState extends State<RecordingScreen>
               child: RecordingControls(
                 patient: widget.patient,
                 onRecordingComplete: () {
-                  // Navigate back or to session details
-                  Navigator.pop(context);
+                  // Don't navigate automatically - let user decide
+                  // Navigator.pop(context);
                 },
               ),
             ),

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/patient.dart';
+import '../models/session.dart';
 import '../services/api_service.dart';
 import 'recording_screen.dart';
+import 'playback_screen.dart';
 
 class PatientListScreen extends StatefulWidget {
   const PatientListScreen({super.key});
@@ -36,8 +38,8 @@ class _PatientListScreenState extends State<PatientListScreen> {
   Future<void> _loadPatients() async {
     final apiService = context.read<ApiService>();
 
-    // For demo purposes, using a default user ID
-    const userId = '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1';
+    // Use hardcoded user ID
+    final userId = ApiService.hardcodedUserId;
 
     try {
       setState(() {
@@ -193,7 +195,17 @@ class _PatientListScreenState extends State<PatientListScreen> {
                     Text(patient.email!),
                 ],
               ),
-              trailing: const Icon(Icons.arrow_forward_ios),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.history),
+                    onPressed: () => _showPatientSessions(patient),
+                    tooltip: 'View Sessions',
+                  ),
+                  const Icon(Icons.arrow_forward_ios),
+                ],
+              ),
               onTap: () => _selectPatient(patient),
             ),
           );
@@ -257,7 +269,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
     });
 
     try {
-      const userId = '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1'; // Demo user ID
+      final userId = ApiService.hardcodedUserId;
       final patient = await apiService.addPatient(name, userId);
 
       if (patient != null) {
@@ -292,5 +304,131 @@ class _PatientListScreenState extends State<PatientListScreen> {
         _isLoadingMore = false;
       });
     }
+  }
+
+  Future<void> _showPatientSessions(Patient patient) async {
+    final apiService = context.read<ApiService>();
+    
+    try {
+      final sessions = await apiService.getPatientSessions(patient.id);
+      
+      if (!mounted) return;
+      
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.9,
+          minChildSize: 0.5,
+          builder: (context, scrollController) => Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sessions for ${patient.name}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: sessions.isEmpty
+                      ? const Center(
+                          child: Text('No sessions found for this patient'),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          itemCount: sessions.length,
+                          itemBuilder: (context, index) {
+                            final session = sessions[index];
+                            return Card(
+                              child: ListTile(
+                                leading: Icon(
+                                  _getSessionIcon(session.status),
+                                  color: _getSessionColor(session.status),
+                                ),
+                                title: Text(
+                                  session.sessionTitle ?? 'Session ${index + 1}',
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Status: ${session.status}'),
+                                    Text('Start: ${_formatDateTime(session.startTime)}'),
+                                    if (session.endTime != null)
+                                      Text('End: ${_formatDateTime(session.endTime!)}'),
+                                  ],
+                                ),
+                                trailing: session.status == 'completed'
+                                    ? IconButton(
+                                        icon: const Icon(Icons.play_arrow),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => PlaybackScreen(
+                                                session: session,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        tooltip: 'Play Recording',
+                                      )
+                                    : null,
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading sessions: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  IconData _getSessionIcon(String status) {
+    switch (status) {
+      case 'recording':
+        return Icons.fiber_manual_record;
+      case 'paused':
+        return Icons.pause;
+      case 'completed':
+        return Icons.check_circle;
+      case 'processing':
+        return Icons.hourglass_empty;
+      default:
+        return Icons.radio_button_unchecked;
+    }
+  }
+
+  Color _getSessionColor(String status) {
+    switch (status) {
+      case 'recording':
+        return Colors.red;
+      case 'paused':
+        return Colors.orange;
+      case 'completed':
+        return Colors.green;
+      case 'processing':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

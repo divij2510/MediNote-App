@@ -27,6 +27,7 @@ app.include_router(users.router, tags=["users"])
 app.include_router(patients.router, tags=["patients"])
 app.include_router(templates.router, tags=["templates"])
 app.include_router(sessions.router, tags=["sessions"])
+app.include_router(audio.router, tags=["audio"])  
 
 @app.get("/")
 async def root():

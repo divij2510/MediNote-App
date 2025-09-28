@@ -157,7 +157,8 @@ def create_audio_chunk(
     chunk_number: int, 
     gcs_path: str, 
     mime_type: str,
-    public_url: Optional[str] = None
+    public_url: Optional[str] = None,
+    file_size: Optional[int] = None
 ):
     try:
         session_uuid = convert_to_uuid(session_id)
@@ -166,7 +167,9 @@ def create_audio_chunk(
             chunk_number=chunk_number,
             gcs_path=gcs_path,
             public_url=public_url,
-            mime_type=mime_type
+            mime_type=mime_type,
+            file_size=file_size,
+            upload_status="uploaded"
         )
         db.add(db_chunk)
         db.commit()
@@ -193,3 +196,103 @@ def mark_chunk_processed(db: Session, chunk_id: str):
         db.commit()
     except ValueError:
         pass
+
+# Enhanced session management functions
+def update_session_status(db: Session, session_id: str, status: str, **kwargs):
+    """Update session status and related fields"""
+    try:
+        uuid_id = convert_to_uuid(session_id)
+        update_data = {"status": status, "last_activity": datetime.utcnow()}
+        update_data.update(kwargs)
+        
+        db.query(models.Session).filter(models.Session.id == uuid_id).update(update_data)
+        db.commit()
+        return get_session_by_id(db, session_id)
+    except ValueError:
+        return None
+
+def pause_session(db: Session, session_id: str, reason: str = None):
+    """Pause a recording session"""
+    try:
+        uuid_id = convert_to_uuid(session_id)
+        session = db.query(models.Session).filter(models.Session.id == uuid_id).first()
+        if session:
+            session.status = "paused"
+            session.pause_count += 1
+            session.last_activity = datetime.utcnow()
+            db.commit()
+            return session
+    except ValueError:
+        return None
+
+def resume_session(db: Session, session_id: str):
+    """Resume a paused recording session"""
+    try:
+        uuid_id = convert_to_uuid(session_id)
+        session = db.query(models.Session).filter(models.Session.id == uuid_id).first()
+        if session and session.status == "paused":
+            session.status = "recording"
+            session.resume_count += 1
+            session.last_activity = datetime.utcnow()
+            db.commit()
+            return session
+    except ValueError:
+        return None
+
+def get_session_progress(db: Session, session_id: str):
+    """Get session upload progress and missing chunks"""
+    try:
+        uuid_id = convert_to_uuid(session_id)
+        session = db.query(models.Session).filter(models.Session.id == uuid_id).first()
+        if not session:
+            return None
+            
+        chunks = get_chunks_by_session_id(db, session_id)
+        uploaded_chunks = [c.chunk_number for c in chunks if c.upload_status == "uploaded"]
+        
+        # Find missing chunks
+        if session.total_chunks_expected:
+            all_chunks = set(range(1, session.total_chunks_expected + 1))
+            missing_chunks = sorted(list(all_chunks - set(uploaded_chunks)))
+        else:
+            missing_chunks = []
+            
+        return {
+            "session": session,
+            "chunks_uploaded": len(uploaded_chunks),
+            "total_expected": session.total_chunks_expected,
+            "missing_chunks": missing_chunks,
+            "last_chunk": session.last_chunk_number,
+            "progress_percentage": (len(uploaded_chunks) / session.total_chunks_expected * 100) if session.total_chunks_expected else 0
+        }
+    except ValueError:
+        return None
+
+def update_chunk_status(db: Session, session_id: str, chunk_number: int, status: str, **kwargs):
+    """Update chunk upload status"""
+    try:
+        session_uuid = convert_to_uuid(session_id)
+        chunk = db.query(models.AudioChunk).filter(
+            models.AudioChunk.session_id == session_uuid,
+            models.AudioChunk.chunk_number == chunk_number
+        ).first()
+        
+        if chunk:
+            update_data = {"upload_status": status}
+            update_data.update(kwargs)
+            db.query(models.AudioChunk).filter(models.AudioChunk.id == chunk.id).update(update_data)
+            db.commit()
+            return chunk
+    except ValueError:
+        return None
+
+def get_failed_chunks(db: Session, session_id: str):
+    """Get chunks that failed to upload and need retry"""
+    try:
+        session_uuid = convert_to_uuid(session_id)
+        return db.query(models.AudioChunk).filter(
+            models.AudioChunk.session_id == session_uuid,
+            models.AudioChunk.upload_status.in_(["failed", "retrying"])
+        ).order_by(models.AudioChunk.chunk_number).all()
+    except ValueError:
+        return []

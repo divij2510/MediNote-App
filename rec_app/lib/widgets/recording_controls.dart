@@ -254,15 +254,18 @@ class _RecordingControlsState extends State<RecordingControls> {
 
     try {
       // Create new session
+      debugPrint("CREATING SESSION FOR PATIENT ID:"+widget.patient.id);
+
       final session = RecordingSession(
         id: '', // Will be set by API
         patientId: widget.patient.id,
-        userId: '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1', // Demo user ID
+        userId: ApiService.hardcodedUserId, // Use hardcoded user ID
         patientName: widget.patient.name,
         status: 'recording',
         startTime: DateTime.now(),
-        templateId: 'new_patient_visit',
+        // templateId: ''
       );
+
 
       // Create session on server
       final sessionId = await apiService.createSession(session);
@@ -278,7 +281,7 @@ class _RecordingControlsState extends State<RecordingControls> {
         patientName: session.patientName,
         status: session.status,
         startTime: session.startTime,
-        templateId: session.templateId,
+        // templateId: session.templateId,
       );
 
       // Start recording
@@ -318,6 +321,20 @@ class _RecordingControlsState extends State<RecordingControls> {
     HapticFeedback.mediumImpact();
 
     await audioService.stopRecording();
+    
+    // Reset the audio service state for next recording
+    audioService.resetRecordingState();
+
+    // Show success message instead of navigating
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Recording saved successfully'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
 
     if (widget.onRecordingComplete != null) {
       widget.onRecordingComplete!();

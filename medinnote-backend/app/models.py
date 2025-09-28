@@ -62,13 +62,20 @@ class Session(Base):
     session_summary = Column(Text, nullable=True)
     transcript = Column(Text, nullable=True)
     transcript_status = Column(String, default="pending")
-    status = Column(String, default="recording")
+    status = Column(String, default="recording")  # recording, paused, completed, failed
     date = Column(Date, default=date.today)
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime, nullable=True)
     duration = Column(String, nullable=True)
     template_id = Column(UUID(as_uuid=True), ForeignKey("templates.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Enhanced fields for real-time streaming
+    last_chunk_number = Column(Integer, default=0)
+    total_chunks_expected = Column(Integer, nullable=True)
+    is_resumable = Column(Boolean, default=True)
+    last_activity = Column(DateTime, default=datetime.utcnow)
+    pause_count = Column(Integer, default=0)
+    resume_count = Column(Integer, default=0)
     
     # Relationships
     user = relationship("User", back_populates="sessions")
@@ -87,6 +94,13 @@ class AudioChunk(Base):
     mime_type = Column(String, nullable=False)
     is_processed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Enhanced fields for real-time streaming
+    file_size = Column(Integer, nullable=True)
+    upload_status = Column(String, default="pending")  # pending, uploaded, failed, retrying
+    retry_count = Column(Integer, default=0)
+    upload_attempts = Column(Integer, default=0)
+    is_verified = Column(Boolean, default=False)
+    sequence_verified = Column(Boolean, default=False)
     
     # Relationships
     session = relationship("Session", back_populates="audio_chunks")

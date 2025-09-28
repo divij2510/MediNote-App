@@ -3,6 +3,7 @@ from supabase import create_client, Client
 from .config import settings
 from typing import Optional
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -14,109 +15,130 @@ class SupabaseService:
     def _initialize_client(self):
         """Initialize Supabase client if credentials are available"""
         try:
-            if settings.supabase_url and settings.supabase_service_role_key:
-                # Simple client initialization without extra parameters
+            if settings.supabase_url and settings.supabase_anon_key:
                 self.supabase = create_client(
                     settings.supabase_url,
-                    settings.supabase_service_role_key
+                    settings.supabase_anon_key
                 )
                 logger.info("Supabase client initialized successfully")
             else:
-                logger.warning("Supabase credentials not found, using mock storage")
+                logger.warning("Supabase credentials not found, using file storage fallback")
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
-            logger.warning("Falling back to mock storage")
     
-    def upload_audio_chunk(
-        self, 
-        bucket_name: str, 
-        file_path: str, 
-        file_data: bytes,
-        content_type: str = "audio/wav"
-    ) -> dict:
-        """Upload audio chunk to Supabase Storage"""
+    def generate_presigned_url(self, bucket_name: str, file_path: str, expires_in: int = 3600) -> dict:
+        """Generate presigned URL for upload with proper auth headers"""
         try:
             if not self.supabase:
-                return self._mock_response(bucket_name, file_path)
+                return self._local_storage_response(bucket_name, file_path)
             
-            # Upload to Supabase Storage
-            result = self.supabase.storage.from_(bucket_name).upload(
-                file_path,
-                file_data,
-                file_options={"content-type": content_type}
-            )
-            
-            # Get public URL
-            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-            
-            return {
-                "success": True,
-                "url": public_url,
-                "path": file_path,
-                "mock": False
-            }
+            # For production, create a signed upload URL
+            try:
+                signed_url_response = self.supabase.storage.from_(bucket_name).create_signed_upload_url(file_path)
                 
-        except Exception as e:
-            logger.error(f"Error uploading to Supabase Storage: {e}")
-            return self._mock_response(bucket_name, file_path)
-    
-    def generate_presigned_url(
-        self, 
-        bucket_name: str, 
-        file_path: str,
-        expires_in: int = 3600
-    ) -> dict:
-        """Generate presigned URL for upload"""
-        try:
-            if not self.supabase:
-                return self._mock_presigned_response(bucket_name, file_path)
-            
-            # For Supabase, generate public URL
-            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-            
-            return {
-                "success": True,
-                "presigned_url": public_url,  # Simplified for MVP
-                "public_url": public_url,
-                "path": file_path,
-                "mock": False
-            }
+                if signed_url_response and 'signedURL' in signed_url_response:
+                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                    
+                    return {
+                        "success": True,
+                        "presigned_url": signed_url_response['signedURL'],
+                        "public_url": public_url,
+                        "path": file_path,
+                        "headers": {
+                            "Authorization": f"Bearer {settings.supabase_anon_key}",
+                            "x-upsert": "true"
+                        }
+                    }
+                else:
+                    raise Exception("Failed to create signed URL")
+                    
+            except Exception as e:
+                logger.warning(f"Signed URL creation failed, using direct upload: {e}")
+                # Fallback to direct upload URL
+                public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                upload_url = f"{settings.supabase_url}/storage/v1/object/{bucket_name}/{file_path}"
+                
+                return {
+                    "success": True,
+                    "presigned_url": upload_url,
+                    "public_url": public_url,
+                    "path": file_path,
+                    "headers": {
+                        "Authorization": f"Bearer {settings.supabase_anon_key}",
+                        "Content-Type": "audio/mpeg"
+                    }
+                }
                 
         except Exception as e:
             logger.error(f"Error generating presigned URL: {e}")
-            return self._mock_presigned_response(bucket_name, file_path)
+            return self._local_storage_response(bucket_name, file_path)
     
-    def _mock_response(self, bucket_name: str, file_path: str) -> dict:
-        """Return mock storage response"""
+    def _local_storage_response(self, bucket_name: str, file_path: str) -> dict:
+        """Fallback to local storage simulation"""
+        # For development - use a mock endpoint that accepts uploads
         return {
             "success": True,
-            "url": f"https://mock-storage.supabase.co/storage/v1/object/public/{bucket_name}/{file_path}",
+            "presigned_url": f"https://httpbin.org/put",
+            "public_url": f"https://mock-storage.local/{bucket_name}/{file_path}",
             "path": file_path,
-            "mock": True
+            "headers": {}
         }
     
-    def _mock_presigned_response(self, bucket_name: str, file_path: str) -> dict:
-        """Return mock presigned URL"""
-        return {
-            "success": True,
-            "presigned_url": f"https://mock-storage.supabase.co/storage/v1/upload/sign/{bucket_name}/{file_path}",
-            "public_url": f"https://mock-storage.supabase.co/storage/v1/object/public/{bucket_name}/{file_path}",
-            "path": file_path,
-            "mock": True
-        }
-    
-    def delete_file(self, bucket_name: str, file_path: str) -> dict:
-        """Delete file from Supabase Storage"""
+    def verify_upload(self, bucket_name: str, file_path: str) -> dict:
+        """Verify that file was uploaded successfully"""
         try:
             if not self.supabase:
-                return {"success": True, "mock": True}
+                return {"exists": True, "mock": True}
             
-            result = self.supabase.storage.from_(bucket_name).remove([file_path])
-            return {"success": True, "result": result}
+            # Check if file exists in Supabase
+            try:
+                file_list = self.supabase.storage.from_(bucket_name).list(path=os.path.dirname(file_path))
+                filename = os.path.basename(file_path)
+                exists = any(f['name'] == filename for f in file_list)
+                
+                return {"exists": exists, "mock": False}
+            except Exception as e:
+                logger.error(f"Error verifying upload: {e}")
+                return {"exists": False, "error": str(e)}
+                
+        except Exception as e:
+            logger.error(f"Error in verify_upload: {e}")
+            return {"exists": False, "error": str(e)}
+    
+    def get_session_audio_chunks(self, session_id: str) -> list:
+        """Get all audio chunks for a session"""
+        try:
+            if not self.supabase:
+                return []
+            
+            bucket_name = "medinnote-audio"
+            folder_path = f"sessions/{session_id}/"
+            
+            # List all files in the session folder
+            files = self.supabase.storage.from_(bucket_name).list(path=folder_path)
+            
+            chunks = []
+            for file in files:
+                if file['name'].startswith('chunk_'):
+                    chunk_number = int(file['name'].split('_')[1].split('.')[0])
+                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(f"{folder_path}{file['name']}")
+                    
+                    chunks.append({
+                        "chunk_number": chunk_number,
+                        "file_name": file['name'],
+                        "public_url": public_url,
+                        "size": file.get('metadata', {}).get('size', 0),
+                        "created_at": file.get('created_at'),
+                        "updated_at": file.get('updated_at')
+                    })
+            
+            # Sort by chunk number
+            chunks.sort(key=lambda x: x['chunk_number'])
+            return chunks
             
         except Exception as e:
-            logger.error(f"Error deleting file: {e}")
-            return {"success": False, "error": str(e)}
+            logger.error(f"Error getting session audio chunks: {e}")
+            return []
 
 # Global instance
 supabase_service = SupabaseService()

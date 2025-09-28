@@ -8,7 +8,7 @@ import 'services/audio_service.dart';
 import 'services/storage_service.dart';
 import 'services/permission_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize port for communication between TaskHandler and UI

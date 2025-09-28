@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:audio_waveforms/audio_waveforms.dart';
+import 'package:record/record.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 import '../models/audio_chunk.dart';
 import '../models/session.dart';
@@ -13,7 +17,9 @@ import 'storage_service.dart';
 enum RecordingState { idle, recording, paused, stopped, error }
 
 class AudioService extends ChangeNotifier {
-  late RecorderController _recorderController;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  
   RecordingState _recordingState = RecordingState.idle;
   RecordingSession? _currentSession;
   final List<AudioChunk> _pendingChunks = [];
@@ -21,15 +27,24 @@ class AudioService extends ChangeNotifier {
   int _currentChunkNumber = 0;
   final int _chunkDurationMs = 5000; // 5 seconds per chunk
   bool _isProcessingChunks = false;
+  String? _currentRecordingPath;
+  bool _isRecording = false;
 
   // Audio metrics
   double _currentAmplitude = 0.0;
   Duration _recordingDuration = Duration.zero;
   Timer? _durationTimer;
+  Timer? _amplitudeTimer;
 
   // Services
   late ApiService _apiService;
   late StorageService _storageService;
+
+  // Playback state
+  bool _isPlaying = false;
+  Duration _playbackPosition = Duration.zero;
+  Duration _playbackDuration = Duration.zero;
+  List<String> _playbackUrls = [];
 
   RecordingState get recordingState => _recordingState;
   RecordingSession? get currentSession => _currentSession;
@@ -39,25 +54,47 @@ class AudioService extends ChangeNotifier {
   bool get isRecording => _recordingState == RecordingState.recording;
   bool get isPaused => _recordingState == RecordingState.paused;
   int get totalChunks => _currentChunkNumber;
+  
+  // Playback getters
+  bool get isPlaying => _isPlaying;
+  Duration get playbackPosition => _playbackPosition;
+  Duration get playbackDuration => _playbackDuration;
 
   void initialize(ApiService apiService, StorageService storageService) {
     _apiService = apiService;
     _storageService = storageService;
-    _initializeRecorderController();
     _initializeForegroundService();
+    _setupAudioPlayer();
+    
+    // Listen for connectivity changes to sync offline chunks
+    _apiService.addListener(_onApiServiceChanged);
+  }
+  
+  void _onApiServiceChanged() {
+    // Sync offline chunks when back online
+    if (_apiService.isConnected) {
+      syncOfflineChunks();
+    }
   }
 
-  void _initializeRecorderController() {
-    _recorderController = RecorderController()
-      ..androidEncoder = AndroidEncoder.aac
-      ..androidOutputFormat = AndroidOutputFormat.mpeg4
-      ..iosEncoder = IosEncoder.kAudioFormatMPEG4AAC
-      ..sampleRate = 16000
-      ..bitRate = 128000;
+  void _setupAudioPlayer() {
+    _audioPlayer.playerStateStream.listen((state) {
+      _isPlaying = state.playing;
+      notifyListeners();
+    });
+
+    _audioPlayer.positionStream.listen((position) {
+      _playbackPosition = position;
+      notifyListeners();
+    });
+
+    _audioPlayer.durationStream.listen((duration) {
+      _playbackDuration = duration ?? Duration.zero;
+      notifyListeners();
+    });
   }
 
   void _initializeForegroundService() {
-    // Initialize foreground task
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'rec_app_recording',
@@ -78,12 +115,52 @@ class AudioService extends ChangeNotifier {
     );
   }
 
+  Future<bool> _requestPermissions() async {
+    // Request microphone permission
+    final micStatus = await Permission.microphone.request();
+    if (micStatus != PermissionStatus.granted) {
+      debugPrint('Microphone permission denied');
+      return false;
+    }
+
+    // For Android 11+ (API 30+), we don't need storage permission for app-specific directories
+    if (Platform.isAndroid) {
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      if (androidInfo.version.sdkInt <= 29) {
+        final storageStatus = await Permission.storage.request();
+        if (storageStatus != PermissionStatus.granted) {
+          debugPrint('Storage permission denied');
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
   Future<bool> startRecording(RecordingSession session) async {
     if (_recordingState != RecordingState.idle) {
+      debugPrint('Cannot start recording: already in state $_recordingState');
       return false;
     }
 
     try {
+      // Request permissions first
+      final hasPermissions = await _requestPermissions();
+      if (!hasPermissions) {
+        _recordingState = RecordingState.error;
+        notifyListeners();
+        return false;
+      }
+
+      // Check if recorder is available
+      if (!await _audioRecorder.hasPermission()) {
+        debugPrint('Audio recorder permission not granted');
+        _recordingState = RecordingState.error;
+        notifyListeners();
+        return false;
+      }
+
       _currentSession = session;
       _recordingState = RecordingState.recording;
       _currentChunkNumber = 0;
@@ -93,22 +170,30 @@ class AudioService extends ChangeNotifier {
       // Start foreground service
       await _startForegroundService();
 
-      // Start recording
+      // Create unique file path
       final directory = await getApplicationDocumentsDirectory();
-      final filePath = '${directory.path}/temp_recording_${session.id}.m4a';
+      _currentRecordingPath = '${directory.path}/recording_${session.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
-      await _recorderController.record(path: filePath);
+      // Start recording
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          sampleRate: 44100,
+          bitRate: 128000,
+        ),
+        path: _currentRecordingPath!,
+      );
 
-      // Start chunk processing timer
-      _startChunkTimer();
+      _isRecording = true;
+      debugPrint('Recording started at: $_currentRecordingPath');
 
-      // Start duration timer
+      // Start timers
       _startDurationTimer();
-
-      // Start amplitude monitoring
       _startAmplitudeMonitoring();
+      _startChunkProcessingTimer();
 
       notifyListeners();
+      debugPrint('Recording started successfully');
       return true;
     } catch (e) {
       debugPrint('Error starting recording: $e');
@@ -122,11 +207,13 @@ class AudioService extends ChangeNotifier {
     if (_recordingState != RecordingState.recording) return;
 
     try {
-      await _recorderController.pause();
+      await _audioRecorder.pause();
       _recordingState = RecordingState.paused;
       _chunkTimer?.cancel();
       _durationTimer?.cancel();
+      _amplitudeTimer?.cancel();
       notifyListeners();
+      debugPrint('Recording paused');
     } catch (e) {
       debugPrint('Error pausing recording: $e');
     }
@@ -136,12 +223,13 @@ class AudioService extends ChangeNotifier {
     if (_recordingState != RecordingState.paused) return;
 
     try {
-      // In audio_waveforms, continue recording with record() method
-      await _recorderController.record();
+      await _audioRecorder.resume();
       _recordingState = RecordingState.recording;
-      _startChunkTimer();
       _startDurationTimer();
+      _startAmplitudeMonitoring();
+      _startChunkProcessingTimer();
       notifyListeners();
+      debugPrint('Recording resumed');
     } catch (e) {
       debugPrint('Error resuming recording: $e');
     }
@@ -151,28 +239,35 @@ class AudioService extends ChangeNotifier {
     if (_recordingState == RecordingState.idle) return;
 
     try {
-      // Stop recording
-      final path = await _recorderController.stop();
+      // Stop recording and get final file
+      final path = await _audioRecorder.stop();
+      _isRecording = false;
 
       // Process final chunk
-      if (path != null) {
+      if (path != null && File(path).existsSync()) {
         await _processFinalChunk(path);
       }
 
       // Clean up timers
       _chunkTimer?.cancel();
       _durationTimer?.cancel();
+      _amplitudeTimer?.cancel();
 
       // Stop foreground service
       await FlutterForegroundTask.stopService();
 
       // Update session status
       if (_currentSession != null) {
-        await _apiService.updateSessionStatus(_currentSession!.id, 'completed', _currentChunkNumber);
+        await _apiService.updateSessionStatus(
+            _currentSession!.id,
+            'completed',
+            _currentChunkNumber
+        );
       }
 
       _recordingState = RecordingState.stopped;
       notifyListeners();
+      debugPrint('Recording stopped successfully');
     } catch (e) {
       debugPrint('Error stopping recording: $e');
       _recordingState = RecordingState.error;
@@ -180,7 +275,7 @@ class AudioService extends ChangeNotifier {
     }
   }
 
-  void _startChunkTimer() {
+  void _startChunkProcessingTimer() {
     _chunkTimer = Timer.periodic(Duration(milliseconds: _chunkDurationMs), (timer) {
       if (_recordingState == RecordingState.recording) {
         _processCurrentChunk();
@@ -198,14 +293,17 @@ class AudioService extends ChangeNotifier {
   }
 
   void _startAmplitudeMonitoring() {
-    // Simulate amplitude since getAmplitude() doesn't exist in current API
-    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
       if (_recordingState == RecordingState.recording) {
-        // Generate realistic amplitude simulation
-        final time = DateTime.now().millisecondsSinceEpoch;
-        _currentAmplitude = 20 + (40 * ((time % 3000) / 3000.0)) +
-            (10 * ((time % 500) / 500.0));
-        notifyListeners();
+        try {
+          final amplitude = await _audioRecorder.getAmplitude();
+          _currentAmplitude = amplitude.current;
+          debugPrint('Amplitude: ${_currentAmplitude}');
+          notifyListeners();
+        } catch (e) {
+          _currentAmplitude = 0.0;
+          debugPrint('Amplitude error: $e');
+        }
       } else {
         _currentAmplitude = 0.0;
         timer.cancel();
@@ -225,26 +323,33 @@ class AudioService extends ChangeNotifier {
   }
 
   Future<void> _processCurrentChunk() async {
-    if (_isProcessingChunks || _currentSession == null) return;
+    if (_isProcessingChunks || _currentSession == null || _currentRecordingPath == null) return;
     _isProcessingChunks = true;
 
     try {
       _currentChunkNumber++;
 
-      // For demo, create empty chunk - in real implementation you'd capture actual audio
-      final chunkData = Uint8List.fromList([]);
-      final chunk = AudioChunk(
-        sessionId: _currentSession!.id,
-        chunkNumber: _currentChunkNumber,
-        data: chunkData,
-        mimeType: 'audio/m4a',
-        timestamp: DateTime.now(),
-      );
+      // Create chunk with actual audio data
+      final file = File(_currentRecordingPath!);
+      if (file.existsSync()) {
+        final fileBytes = await file.readAsBytes();
+        
+        // Only process if we have actual audio data
+        if (fileBytes.isNotEmpty) {
+          final chunk = AudioChunk(
+            sessionId: _currentSession!.id,
+            chunkNumber: _currentChunkNumber,
+            data: fileBytes,
+            mimeType: 'audio/mp4',
+            timestamp: DateTime.now(),
+          );
 
-      _pendingChunks.add(chunk);
-      _uploadChunk(chunk);
+          _pendingChunks.add(chunk);
+          await _uploadChunk(chunk, false); // Not the last chunk
 
-      notifyListeners();
+          notifyListeners();
+        }
+      }
     } catch (e) {
       debugPrint('Error processing chunk: $e');
     } finally {
@@ -254,44 +359,63 @@ class AudioService extends ChangeNotifier {
 
   Future<void> _processFinalChunk(String filePath) async {
     try {
-      final file = await _storageService.readFile(filePath);
-      if (file != null) {
+      final file = File(filePath);
+      if (file.existsSync()) {
+        final fileBytes = await file.readAsBytes();
         _currentChunkNumber++;
+
         final chunk = AudioChunk(
           sessionId: _currentSession!.id,
           chunkNumber: _currentChunkNumber,
-          data: file,
-          mimeType: 'audio/m4a',
+          data: fileBytes,
+          mimeType: 'audio/mp4',
           timestamp: DateTime.now(),
         );
 
         _pendingChunks.add(chunk);
-        await _uploadChunk(chunk);
+        await _uploadChunk(chunk, true); // This is the last chunk
+
+        // Clean up file only if it exists
+        try {
+          if (file.existsSync()) {
+            await file.delete();
+          }
+        } catch (deleteError) {
+          debugPrint('Warning: Could not delete file $filePath: $deleteError');
+        }
       }
     } catch (e) {
       debugPrint('Error processing final chunk: $e');
     }
   }
 
-  Future<void> _uploadChunk(AudioChunk chunk) async {
+  Future<void> _uploadChunk(AudioChunk chunk, bool isLast) async {
     if (_currentSession == null) return;
 
     try {
       chunk.status = ChunkStatus.uploading;
       notifyListeners();
 
-      final success = await _apiService.uploadAudioChunk(
-        chunk,
-        _currentSession!.templateId ?? 'new_patient_visit',
-        chunk.chunkNumber == _currentChunkNumber, // isLast
-      );
+      // Check if we're online
+      if (!_apiService.isConnected) {
+        debugPrint('Offline: storing chunk locally');
+        chunk.status = ChunkStatus.failed;
+        await _storageService.storeFailedChunk(chunk);
+        notifyListeners();
+        return;
+      }
+
+      final success = await _apiService.uploadAudioChunk(chunk, isLast);
 
       if (success) {
         chunk.status = ChunkStatus.uploaded;
         _pendingChunks.remove(chunk);
+        debugPrint('Chunk ${chunk.chunkNumber} uploaded successfully');
       } else {
         chunk.status = ChunkStatus.failed;
         chunk.retryCount++;
+        await _storageService.storeFailedChunk(chunk);
+        debugPrint('Chunk ${chunk.chunkNumber} upload failed - stored locally');
       }
 
       notifyListeners();
@@ -299,6 +423,8 @@ class AudioService extends ChangeNotifier {
       debugPrint('Error uploading chunk: $e');
       chunk.status = ChunkStatus.failed;
       chunk.error = e.toString();
+      chunk.retryCount++;
+      await _storageService.storeFailedChunk(chunk);
       notifyListeners();
     }
   }
@@ -307,16 +433,121 @@ class AudioService extends ChangeNotifier {
     final failedChunks = _pendingChunks.where((c) => c.shouldRetry).toList();
     for (final chunk in failedChunks) {
       chunk.status = ChunkStatus.retrying;
-      await _uploadChunk(chunk);
+      await _uploadChunk(chunk, false);
     }
+  }
+
+  Future<void> syncOfflineChunks() async {
+    if (!_apiService.isConnected) return;
+
+    final offlineChunks = _storageService.failedChunks;
+    debugPrint('Syncing ${offlineChunks.length} offline chunks');
+
+    for (final chunk in offlineChunks) {
+      try {
+        chunk.status = ChunkStatus.retrying;
+        final success = await _apiService.uploadAudioChunk(chunk, false);
+        
+        if (success) {
+          await _storageService.removeFailedChunk(chunk);
+          debugPrint('Offline chunk ${chunk.chunkNumber} synced successfully');
+        } else {
+          chunk.status = ChunkStatus.failed;
+          chunk.retryCount++;
+        }
+      } catch (e) {
+        debugPrint('Error syncing offline chunk: $e');
+        chunk.status = ChunkStatus.failed;
+        chunk.error = e.toString();
+        chunk.retryCount++;
+      }
+    }
+    
+    notifyListeners();
+  }
+
+  // Playback methods
+  Future<void> loadSessionForPlayback(String sessionId) async {
+    try {
+      // Get session audio URLs from backend
+      final audioData = await _apiService.getSessionAudio(sessionId);
+      if (audioData != null) {
+        _playbackUrls = audioData['streaming_urls'] ?? [];
+        debugPrint('Loaded ${_playbackUrls.length} audio chunks for playback');
+      }
+    } catch (e) {
+      debugPrint('Error loading session for playback: $e');
+    }
+  }
+
+  Future<void> playSession() async {
+    if (_playbackUrls.isEmpty) {
+      debugPrint('No audio URLs available for playback');
+      return;
+    }
+
+    try {
+      // For now, play the first URL (in a real app, you'd concatenate or play sequentially)
+      await _audioPlayer.setUrl(_playbackUrls.first);
+      await _audioPlayer.play();
+      _isPlaying = true;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error playing session: $e');
+    }
+  }
+
+  Future<void> pausePlayback() async {
+    try {
+      await _audioPlayer.pause();
+      _isPlaying = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error pausing playback: $e');
+    }
+  }
+
+  Future<void> stopPlayback() async {
+    try {
+      await _audioPlayer.stop();
+      _isPlaying = false;
+      _playbackPosition = Duration.zero;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error stopping playback: $e');
+    }
+  }
+
+  Future<void> seekTo(Duration position) async {
+    try {
+      await _audioPlayer.seek(position);
+    } catch (e) {
+      debugPrint('Error seeking: $e');
+    }
+  }
+
+  // Reset recording state for new recording
+  void resetRecordingState() {
+    _recordingState = RecordingState.idle;
+    _currentSession = null;
+    _currentChunkNumber = 0;
+    _recordingDuration = Duration.zero;
+    _pendingChunks.clear();
+    _currentRecordingPath = null;
+    _isRecording = false;
+    _currentAmplitude = 0.0;
+    notifyListeners();
   }
 
   @override
   void dispose() {
     _chunkTimer?.cancel();
     _durationTimer?.cancel();
-    _recorderController.dispose();
+    _amplitudeTimer?.cancel();
+    _audioRecorder.dispose();
+    _audioPlayer.dispose();
     FlutterForegroundTask.stopService();
+    _apiService.removeListener(_onApiServiceChanged);
     super.dispose();
   }
 }
@@ -335,7 +566,6 @@ class RecordingTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // Update notification
     FlutterForegroundTask.updateService(
       notificationTitle: 'Recording Medical Consultation',
       notificationText: 'Recording active - ${timestamp.toLocal().toString().split(' ')[1].substring(0, 8)}',

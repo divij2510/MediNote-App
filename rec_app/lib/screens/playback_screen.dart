@@ -1,0 +1,177 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../models/session.dart';
+import '../services/audio_service.dart';
+import '../services/api_service.dart';
+
+class PlaybackScreen extends StatefulWidget {
+  final RecordingSession session;
+
+  const PlaybackScreen({
+    super.key,
+    required this.session,
+  });
+
+  @override
+  State<PlaybackScreen> createState() => _PlaybackScreenState();
+}
+
+class _PlaybackScreenState extends State<PlaybackScreen> {
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSessionAudio();
+  }
+
+  Future<void> _loadSessionAudio() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final audioService = context.read<AudioService>();
+      await audioService.loadSessionForPlayback(widget.session.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading audio: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Playback - ${widget.session.patientName}'),
+        centerTitle: true,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Consumer<AudioService>(
+              builder: (context, audioService, child) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      // Session info card
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Session Details',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Patient: ${widget.session.patientName}'),
+                              Text('Start Time: ${_formatDateTime(widget.session.startTime)}'),
+                              if (widget.session.endTime != null)
+                                Text('End Time: ${_formatDateTime(widget.session.endTime!)}'),
+                              Text('Status: ${widget.session.status}'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Playback controls
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            children: [
+                              // Progress bar
+                              LinearProgressIndicator(
+                                value: audioService.playbackDuration.inMilliseconds > 0
+                                    ? audioService.playbackPosition.inMilliseconds /
+                                        audioService.playbackDuration.inMilliseconds
+                                    : 0.0,
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Time display
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(_formatDuration(audioService.playbackPosition)),
+                                  Text(_formatDuration(audioService.playbackDuration)),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+
+                              // Control buttons
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  IconButton(
+                                    onPressed: () => audioService.seekTo(
+                                      audioService.playbackPosition - const Duration(seconds: 10),
+                                    ),
+                                    icon: const Icon(Icons.replay_10),
+                                    iconSize: 32,
+                                  ),
+                                  Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                    child: IconButton(
+                                      onPressed: audioService.isPlaying
+                                          ? () => audioService.pausePlayback()
+                                          : () => audioService.playSession(),
+                                      icon: Icon(
+                                        audioService.isPlaying ? Icons.pause : Icons.play_arrow,
+                                        color: Colors.white,
+                                        size: 32,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => audioService.seekTo(
+                                      audioService.playbackPosition + const Duration(seconds: 10),
+                                    ),
+                                    icon: const Icon(Icons.forward_10),
+                                    iconSize: 32,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+}

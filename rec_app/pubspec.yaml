@@ -12,13 +12,16 @@ dependencies:
     sdk: flutter
 
   # Audio recording and processing
-  audio_waveforms:
+  record:
+  just_audio: ^0.9.36
 
   # Background services - Latest stable
   flutter_foreground_task: ^8.17.0
 
   # Permissions
   permission_handler: ^11.3.1
+  device_info_plus: ^9.1.0
+
 
   # HTTP requests
   http: ^1.2.1

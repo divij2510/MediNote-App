@@ -1,4 +1,4 @@
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +15,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   final List<double> _waveformData = List.generate(50, (index) => 0.0);
+  double _lastAmplitude = 0.0;
 
   @override
   void initState() {
@@ -31,18 +32,41 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     super.dispose();
   }
 
+  void _updateWaveform(double amplitude) {
+    // Only update if amplitude has changed significantly to avoid unnecessary builds
+    if ((_lastAmplitude - amplitude).abs() > 2.0) {
+      _lastAmplitude = amplitude;
+
+      // Use addPostFrameCallback to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            // Shift existing data left
+            for (int i = 0; i < _waveformData.length - 1; i++) {
+              _waveformData[i] = _waveformData[i + 1];
+            }
+            // Add new amplitude data
+            _waveformData[_waveformData.length - 1] = amplitude;
+          });
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AudioService>(
       builder: (context, audioService, child) {
-        // Update waveform data based on amplitude
+        // Update animation controller based on recording state
         if (audioService.isRecording) {
-          _updateWaveform(audioService.currentAmplitude);
           if (!_animationController.isAnimating) {
             _animationController.repeat();
           }
+          // Update waveform data (this will schedule the setState for after build)
+          _updateWaveform(audioService.currentAmplitude);
         } else {
           _animationController.stop();
+          // Clear waveform when not recording
           _updateWaveform(0.0);
         }
 
@@ -131,7 +155,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                     ),
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
-                      value: audioService.currentAmplitude / 100.0,
+                      value: (audioService.currentAmplitude / 100.0).clamp(0.0, 1.0),
                       backgroundColor: Colors.grey.shade300,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         _getVolumeColor(audioService.currentAmplitude),
@@ -174,17 +198,6 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     );
   }
 
-  void _updateWaveform(double amplitude) {
-    setState(() {
-      // Shift existing data left
-      for (int i = 0; i < _waveformData.length - 1; i++) {
-        _waveformData[i] = _waveformData[i + 1];
-      }
-      // Add new amplitude data
-      _waveformData[_waveformData.length - 1] = amplitude;
-    });
-  }
-
   Color _getVolumeColor(double amplitude) {
     if (amplitude < 20) return Colors.green;
     if (amplitude < 50) return Colors.yellow;
@@ -225,14 +238,15 @@ class WaveformPainter extends CustomPainter {
         paint.color = Colors.grey.shade400;
       }
 
-      // Draw bar
+      // Draw bar (ensure minimum height for visibility)
+      final actualBarHeight = math.max(barHeight, 4.0);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(
             x + barWidth * 0.1,
-            centerY - barHeight / 2,
+            centerY - actualBarHeight / 2,
             barWidth * 0.8,
-            barHeight,
+            actualBarHeight,
           ),
           const Radius.circular(2),
         ),

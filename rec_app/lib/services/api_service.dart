@@ -1,5 +1,3 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:dio/dio.dart';
@@ -15,6 +13,9 @@ class ApiService extends ChangeNotifier {
   String? _authToken;
   bool _isConnected = true;
   String? _userId;
+  
+  // Hardcoded user ID for MVP as requested
+  static const String hardcodedUserId = '9f3b7c52-8a1d-4e65-9e4f-27b6a541d6c1';
 
   bool get isConnected => _isConnected;
   String? get userId => _userId;
@@ -22,6 +23,13 @@ class ApiService extends ChangeNotifier {
   ApiService() {
     _initializeNetworkListener();
     _configureDio();
+    _setHardcodedUser();
+  }
+  
+  void _setHardcodedUser() {
+    _userId = hardcodedUserId;
+    // Set a mock auth token for the hardcoded user
+    _authToken = 'mock_token_for_${hardcodedUserId}';
   }
 
   void _initializeNetworkListener() {
@@ -206,7 +214,7 @@ class ApiService extends ChangeNotifier {
     }
   }
 
-  Future<bool> uploadAudioChunk(AudioChunk chunk, String templateId, bool isLast) async {
+  Future<bool> uploadAudioChunk(AudioChunk chunk, /*String templateId,*/ bool isLast) async {
     if (!_isConnected) {
       debugPrint('No network connection, queueing chunk');
       return false;
@@ -219,7 +227,7 @@ class ApiService extends ChangeNotifier {
         'chunkNumber': chunk.chunkNumber,
         'mimeType': chunk.mimeType,
       });
-
+      debugPrint("PRESIGNED RESPONSE = $presignedResponse");
       if (presignedResponse.statusCode != 200) {
         return false;
       }
@@ -240,7 +248,7 @@ class ApiService extends ChangeNotifier {
 
       // Accept both 200 and 201 status codes for successful upload
       if (uploadResponse.statusCode != 200 && uploadResponse.statusCode != 201) {
-        debugPrint('Upload failed with status: ${uploadResponse.statusCode}');
+        debugPrint('Upload failed with status: ${uploadResponse.statusCode}\n ${uploadResponse.body}');
         return false;
       }
 
@@ -253,8 +261,8 @@ class ApiService extends ChangeNotifier {
         'totalChunksClient': chunk.chunkNumber, // Will be updated with actual total
         'publicUrl': publicUrl,
         'mimeType': chunk.mimeType,
-        'selectedTemplate': templateId,
-        'selectedTemplateId': templateId,
+        // 'selectedTemplate': templateId,
+        // 'selectedTemplateId': templateId,
         'model': 'fast',
       });
 
@@ -285,6 +293,37 @@ class ApiService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error updating session status: $e');
       return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getSessionAudio(String sessionId) async {
+    try {
+      final response = await _dio.get('/v1/session/$sessionId/audio/stream');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        return data;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching session audio: $e');
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSessionAudioChunks(String sessionId) async {
+    try {
+      final response = await _dio.get('/v1/session/$sessionId/audio');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final chunks = data['chunks'] as List<dynamic>;
+        return chunks.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching session audio chunks: $e');
+      return [];
     }
   }
 }
