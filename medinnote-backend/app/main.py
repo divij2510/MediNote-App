@@ -44,6 +44,47 @@ async def health_check():
         "supabase_configured": bool(settings.supabase_url and settings.supabase_service_role_key)
     }
 
+@app.get("/health/db")
+async def database_health_check():
+    """Database health check endpoint"""
+    try:
+        from .database import SessionLocal
+        from sqlalchemy import text
+        
+        db = SessionLocal()
+        try:
+            # Test database connection
+            result = db.execute(text("SELECT 1 as test"))
+            test_value = result.scalar()
+            
+            if test_value == 1:
+                return {
+                    "status": "healthy",
+                    "database": "connected",
+                    "message": "Database connection successful"
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "database": "error",
+                    "message": "Database query failed"
+                }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "database": "error",
+                "message": f"Database connection failed: {str(e)}"
+            }
+        finally:
+            db.close()
+            
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "database": "error",
+            "message": f"Database initialization failed: {str(e)}"
+        }
+
 # Startup event to initialize database and create default templates
 @app.on_event("startup")
 async def startup_event():

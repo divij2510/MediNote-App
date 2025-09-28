@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/audio_chunk.dart';
 import '../models/session.dart';
@@ -49,6 +50,7 @@ class AudioService extends ChangeNotifier {
   Duration _playbackPosition = Duration.zero;
   Duration _playbackDuration = Duration.zero;
   List<String> _playbackUrls = [];
+  int _currentChunkIndex = 0;
 
   RecordingState get recordingState => _recordingState;
   RecordingSession? get currentSession => _currentSession;
@@ -58,12 +60,14 @@ class AudioService extends ChangeNotifier {
   Duration get recordingDuration => _recordingDuration;
   bool get isRecording => _recordingState == RecordingState.recording;
   bool get isPaused => _recordingState == RecordingState.paused;
-  int get totalChunks => _currentChunkNumber;
+  int get recordedChunks => _currentChunkNumber;
   
   // Playback getters
   bool get isPlaying => _isPlaying;
   Duration get playbackPosition => _playbackPosition;
   Duration get playbackDuration => _playbackDuration;
+  int get currentChunkIndex => _currentChunkIndex;
+  int get totalPlaybackChunks => _playbackUrls.length;
 
   void initialize(ApiService apiService, StorageService storageService) {
     _apiService = apiService;
@@ -274,12 +278,23 @@ class AudioService extends ChangeNotifier {
 
       // Update session status
       if (_currentSession != null) {
-        await _apiService.updateSessionStatus(
-            _currentSession!.id,
-            'completed',
-            _currentChunkNumber,
-            _recordingDuration.inSeconds
-        );
+        final sessionId = _currentSession!.id;
+        debugPrint('Updating session status to completed: $sessionId');
+        debugPrint('Total chunks: $_currentChunkNumber, Duration: ${_recordingDuration.inSeconds}s');
+        
+        try {
+          final success = await _apiService.updateSessionStatus(
+              sessionId,
+              'completed',
+              _currentChunkNumber,
+              _recordingDuration.inSeconds
+          );
+          debugPrint('Session status update result: $success');
+        } catch (e) {
+          debugPrint('Error updating session status: $e');
+        }
+      } else {
+        debugPrint('Warning: _currentSession is null, cannot update session status');
       }
 
       _recordingState = RecordingState.stopped;
@@ -358,13 +373,24 @@ class AudioService extends ChangeNotifier {
     try {
       _currentChunkNumber++;
 
-      // Create chunk with actual audio data
-      final file = File(_currentRecordingPath!);
-      if (file.existsSync()) {
-        final fileBytes = await file.readAsBytes();
+      // Create a temporary file for this chunk
+      final directory = await getApplicationDocumentsDirectory();
+      final tempChunkPath = '${directory.path}/temp_chunk_${_currentChunkNumber}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
+      // Stop current recording and copy the data
+      await _audioRecorder.stop();
+      
+      // Copy the current recording to a temporary chunk file
+      final currentFile = File(_currentRecordingPath!);
+      if (currentFile.existsSync()) {
+        final fileBytes = await currentFile.readAsBytes();
         
-        // Only process if we have actual audio data
         if (fileBytes.isNotEmpty) {
+          // Write chunk data to temporary file
+          final tempFile = File(tempChunkPath);
+          await tempFile.writeAsBytes(fileBytes);
+          
+          // Create chunk with the temporary file data
           final chunk = AudioChunk(
             sessionId: _currentSession!.id,
             chunkNumber: _currentChunkNumber,
@@ -376,9 +402,25 @@ class AudioService extends ChangeNotifier {
           _pendingChunks.add(chunk);
           await _uploadChunk(chunk, false); // Not the last chunk
 
-          notifyListeners();
+          // Clean up temporary file
+          if (tempFile.existsSync()) {
+            await tempFile.delete();
+          }
         }
       }
+
+      // Start recording again with a new file
+      _currentRecordingPath = '${directory.path}/recording_${_currentSession!.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          sampleRate: 44100,
+          bitRate: 128000,
+        ),
+        path: _currentRecordingPath!,
+      );
+
+      notifyListeners();
     } catch (e) {
       debugPrint('Error processing chunk: $e');
     } finally {
@@ -388,6 +430,11 @@ class AudioService extends ChangeNotifier {
 
   Future<void> _processFinalChunk(String filePath) async {
     try {
+      if (_currentSession == null) {
+        debugPrint('Cannot process final chunk: no current session');
+        return;
+      }
+
       final file = File(filePath);
       if (file.existsSync()) {
         final fileBytes = await file.readAsBytes();
@@ -419,7 +466,10 @@ class AudioService extends ChangeNotifier {
   }
 
   Future<void> _uploadChunk(AudioChunk chunk, bool isLast) async {
-    if (_currentSession == null) return;
+    if (_currentSession == null) {
+      debugPrint('Cannot upload chunk: _currentSession is null');
+      return;
+    }
 
     try {
       chunk.status = ChunkStatus.uploading;
@@ -500,9 +550,18 @@ class AudioService extends ChangeNotifier {
     try {
       // Get session audio URLs from backend
       final audioData = await _apiService.getSessionAudio(sessionId);
+      debugPrint('Audio data from backend: $audioData');
       if (audioData != null) {
-        final urls = audioData['streaming_urls'] as List<dynamic>? ?? [];
-        _playbackUrls = urls.cast<String>();
+        final chunks = audioData['chunks'] as List<dynamic>? ?? [];
+        debugPrint('Found ${chunks.length} chunks in backend response');
+        _playbackUrls = chunks.map((chunk) {
+          final chunkMap = chunk as Map<String, dynamic>;
+          final storageUrl = chunkMap['storage_url'] as String?;
+          final publicUrl = chunkMap['public_url'] as String?;
+          final url = storageUrl ?? publicUrl ?? '';
+          debugPrint('Chunk URL: $url');
+          return url;
+        }).where((url) => url.isNotEmpty).toList();
         debugPrint('Loaded ${_playbackUrls.length} audio chunks for playback');
       }
     } catch (e) {
@@ -517,13 +576,131 @@ class AudioService extends ChangeNotifier {
     }
 
     try {
-      // For now, play the first URL (in a real app, you'd concatenate or play sequentially)
-      await _audioPlayer.setUrl(_playbackUrls.first);
-      await _audioPlayer.play();
-      _isPlaying = true;
-      notifyListeners();
+      // Stop any current playback first
+      await stopPlayback();
+      
+      // Create merged audio file for smooth playback
+      final mergedFile = await _createMergedAudioFile();
+      if (mergedFile != null) {
+        debugPrint('Playing merged audio file: ${mergedFile.path}');
+        await _audioPlayer.setFilePath(mergedFile.path);
+        await _audioPlayer.play();
+        _isPlaying = true;
+        notifyListeners();
+      } else {
+        debugPrint('Failed to create merged audio file, falling back to sequential playback');
+        await _playAllChunksSequentially();
+      }
     } catch (e) {
       debugPrint('Error playing session: $e');
+    }
+  }
+
+  Future<File?> _createMergedAudioFile() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final mergedFilePath = '${directory.path}/merged_session_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final mergedFile = File(mergedFilePath);
+      
+      if (_playbackUrls.isEmpty) {
+        debugPrint('No playback URLs available for merging');
+        return null;
+      }
+
+      debugPrint('Downloading and merging ${_playbackUrls.length} audio chunks...');
+      
+      // Download all chunks and concatenate them
+      final List<List<int>> chunkData = [];
+      int totalBytes = 0;
+      
+      for (int i = 0; i < _playbackUrls.length; i++) {
+        final url = _playbackUrls[i];
+        debugPrint('Downloading chunk ${i + 1}/${_playbackUrls.length}: $url');
+        
+        try {
+          final response = await http.get(Uri.parse(url));
+          if (response.statusCode == 200) {
+            final bytes = response.bodyBytes;
+            if (bytes.isNotEmpty) {
+              chunkData.add(bytes);
+              totalBytes += bytes.length;
+              debugPrint('Chunk ${i + 1}: ${bytes.length} bytes');
+            } else {
+              debugPrint('Chunk ${i + 1}: Empty data, skipping');
+            }
+          } else {
+            debugPrint('Failed to download chunk ${i + 1}: ${response.statusCode}');
+          }
+        } catch (e) {
+          debugPrint('Error downloading chunk ${i + 1}: $e');
+        }
+      }
+      
+      if (chunkData.isEmpty) {
+        debugPrint('No valid chunk data to merge');
+        return null;
+      }
+      
+      // Concatenate all chunks into one file
+      final mergedBytes = <int>[];
+      for (final chunk in chunkData) {
+        mergedBytes.addAll(chunk);
+      }
+      
+      await mergedFile.writeAsBytes(mergedBytes);
+      debugPrint('Created merged file with ${mergedBytes.length} bytes from ${chunkData.length} chunks');
+      return mergedFile;
+    } catch (e) {
+      debugPrint('Error creating merged audio file: $e');
+      return null;
+    }
+  }
+
+  Future<void> _playAllChunksSequentially() async {
+    for (int i = 0; i < _playbackUrls.length; i++) {
+      _currentChunkIndex = i;
+      final url = _playbackUrls[i];
+      debugPrint('Playing chunk ${i + 1}/${_playbackUrls.length}: $url');
+      
+      try {
+        await _audioPlayer.setUrl(url);
+        await _audioPlayer.play();
+        _isPlaying = true;
+        notifyListeners();
+        
+        // Wait for this chunk to finish playing
+        await _waitForChunkToFinish();
+        
+        debugPrint('Finished playing chunk ${i + 1}');
+      } catch (e) {
+        debugPrint('Error playing chunk ${i + 1}: $e');
+        // Continue with next chunk even if one fails
+      }
+    }
+    
+    debugPrint('Finished playing all chunks');
+    _isPlaying = false;
+    _currentChunkIndex = 0;
+    notifyListeners();
+  }
+
+  Future<void> _waitForChunkToFinish() async {
+    // Wait for the current chunk to finish playing
+    while (_audioPlayer.playerState.playing) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  Future<void> stopPlayback() async {
+    try {
+      await _audioPlayer.stop();
+      _isPlaying = false;
+      _currentChunkIndex = 0;
+      _playbackPosition = Duration.zero;
+      notifyListeners();
+      debugPrint('Playback stopped');
+    } catch (e) {
+      debugPrint('Error stopping playback: $e');
     }
   }
 
@@ -537,16 +714,6 @@ class AudioService extends ChangeNotifier {
     }
   }
 
-  Future<void> stopPlayback() async {
-    try {
-      await _audioPlayer.stop();
-      _isPlaying = false;
-      _playbackPosition = Duration.zero;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error stopping playback: $e');
-    }
-  }
 
   Future<void> seekTo(Duration position) async {
     try {
@@ -596,6 +763,11 @@ class AudioService extends ChangeNotifier {
     FlutterForegroundTask.stopService();
     _apiService.removeListener(_onApiServiceChanged);
     super.dispose();
+  }
+
+  // Method to stop playback when screen is closed
+  Future<void> stopAllPlayback() async {
+    await stopPlayback();
   }
 }
 

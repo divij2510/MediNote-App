@@ -301,7 +301,7 @@ class ApiService extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> getSessionAudio(String sessionId) async {
     try {
-      final response = await _dio.get('/v1/session/$sessionId/audio/stream');
+      final response = await _dio.get('/v1/session/$sessionId/audio');
 
       if (response.statusCode == 200) {
         final data = response.data as Map<String, dynamic>;

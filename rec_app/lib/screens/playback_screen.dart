@@ -26,6 +26,18 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
     _loadSessionAudio();
   }
 
+  @override
+  void dispose() {
+    // Stop playback when screen is closed - use Provider.of with listen: false
+    try {
+      final audioService = Provider.of<AudioService>(context, listen: false);
+      audioService.stopAllPlayback();
+    } catch (e) {
+      debugPrint('Error stopping playback in dispose: $e');
+    }
+    super.dispose();
+  }
+
   Future<void> _loadSessionAudio() async {
     setState(() {
       _isLoading = true;
