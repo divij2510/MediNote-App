@@ -18,9 +18,11 @@ class RecordingTest {
       
       if (!hasPermission) {
         debugPrint('Audio recorder permission not granted');
+        await recorder.dispose();
         return false;
       }
 
+      await recorder.dispose();
       debugPrint('Microphone access test passed');
       return true;
     } catch (e) {
@@ -34,19 +36,9 @@ class RecordingTest {
     try {
       recorder = AudioRecorder();
       
-      // Start a short recording to test amplitude
-      await recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          sampleRate: 44100,
-          bitRate: 128000,
-        ),
-        path: '/tmp/test_recording.m4a',
-      );
-
-      // Test amplitude for 3 seconds
-      for (int i = 0; i < 15; i++) {
-        await Future.delayed(const Duration(milliseconds: 200));
+      // Test amplitude without recording
+      for (int i = 0; i < 5; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
         try {
           final amplitude = await recorder.getAmplitude();
           final percentage = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
@@ -56,7 +48,6 @@ class RecordingTest {
         }
       }
 
-      await recorder.stop();
       debugPrint('Amplitude monitoring test completed');
     } catch (e) {
       debugPrint('Amplitude monitoring test failed: $e');

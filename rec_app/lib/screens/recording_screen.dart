@@ -246,6 +246,55 @@ class _RecordingScreenState extends State<RecordingScreen>
               ),
             ),
 
+            // Gain control
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Consumer<AudioService>(
+                  builder: (context, audioService, child) {
+                    return Column(
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.volume_up),
+                            const SizedBox(width: 8),
+                            const Text('Gain Control'),
+                            const Spacer(),
+                            Text('${(audioService.gainLevel * 100).toInt()}%'),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            IconButton(
+                              onPressed: audioService.decreaseGain,
+                              icon: const Icon(Icons.remove),
+                              tooltip: 'Decrease Gain',
+                            ),
+                            Expanded(
+                              child: Slider(
+                                value: audioService.gainLevel,
+                                min: 0.1,
+                                max: 3.0,
+                                divisions: 29,
+                                onChanged: audioService.setGainLevel,
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: audioService.increaseGain,
+                              icon: const Icon(Icons.add),
+                              tooltip: 'Increase Gain',
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+
             // Recording controls
             Padding(
               padding: const EdgeInsets.all(16),

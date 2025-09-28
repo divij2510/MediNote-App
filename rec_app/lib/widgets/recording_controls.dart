@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/patient.dart';
 import '../models/session.dart';
@@ -237,7 +238,12 @@ class _RecordingControlsState extends State<RecordingControls> {
   }
 
   Future<void> _handleMainButtonTap(AudioService audioService, ApiService apiService) async {
-    HapticFeedback.lightImpact();
+    // Enhanced haptic feedback
+    if (audioService.recordingState == RecordingState.idle) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.heavyImpact();
+    }
 
     if (audioService.recordingState == RecordingState.idle) {
       await _startRecording(audioService, apiService);

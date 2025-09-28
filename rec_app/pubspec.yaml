@@ -36,6 +36,10 @@ dependencies:
   # State management
   provider: ^6.1.2
 
+  # System integration
+  share_plus: ^7.2.2
+  shared_preferences: ^2.2.2
+
   # UI components
   cupertino_icons: ^1.0.6
 

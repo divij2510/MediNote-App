@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/audio_chunk.dart';
 import '../models/session.dart';
@@ -33,6 +35,7 @@ class AudioService extends ChangeNotifier {
 
   // Audio metrics
   double _currentAmplitude = 0.0;
+  double _gainLevel = 1.0; // Gain control (0.1 to 3.0)
   Duration _recordingDuration = Duration.zero;
   Timer? _durationTimer;
   Timer? _amplitudeTimer;
@@ -51,6 +54,7 @@ class AudioService extends ChangeNotifier {
   RecordingSession? get currentSession => _currentSession;
   List<AudioChunk> get pendingChunks => List.unmodifiable(_pendingChunks);
   double get currentAmplitude => _currentAmplitude;
+  double get gainLevel => _gainLevel;
   Duration get recordingDuration => _recordingDuration;
   bool get isRecording => _recordingState == RecordingState.recording;
   bool get isPaused => _recordingState == RecordingState.paused;
@@ -122,6 +126,12 @@ class AudioService extends ChangeNotifier {
     if (micStatus != PermissionStatus.granted) {
       debugPrint('Microphone permission denied');
       return false;
+    }
+
+    // Request notification permission for background recording
+    final notificationStatus = await Permission.notification.request();
+    if (notificationStatus != PermissionStatus.granted) {
+      debugPrint('Notification permission denied');
     }
 
     // For Android 11+ (API 30+), we don't need storage permission for app-specific directories
@@ -298,11 +308,12 @@ class AudioService extends ChangeNotifier {
       if (_recordingState == RecordingState.recording && _isRecording) {
         try {
           final amplitude = await _audioRecorder.getAmplitude();
-          // Convert dB to percentage (0-100) for display
+          // Apply gain control and convert dB to percentage (0-100) for display
           // -60 dB = 0%, 0 dB = 100%
-          _currentAmplitude = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
-          debugPrint('Amplitude: ${amplitude.current} dB -> ${_currentAmplitude.toStringAsFixed(1)}%');
-          if (mounted) {
+          final adjustedAmplitude = amplitude.current + (20 * (1 - _gainLevel));
+          _currentAmplitude = ((adjustedAmplitude + 60) / 60 * 100).clamp(0.0, 100.0);
+          debugPrint('Amplitude: ${amplitude.current} dB (gain: ${_gainLevel}x) -> ${_currentAmplitude.toStringAsFixed(1)}%');
+          if (_mounted) {
             notifyListeners();
           }
         } catch (e) {
@@ -529,6 +540,22 @@ class AudioService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error seeking: $e');
     }
+  }
+
+  // Gain control methods
+  void setGainLevel(double gain) {
+    _gainLevel = gain.clamp(0.1, 3.0);
+    notifyListeners();
+  }
+
+  void increaseGain() {
+    setGainLevel(_gainLevel + 0.1);
+    HapticFeedback.lightImpact();
+  }
+
+  void decreaseGain() {
+    setGainLevel(_gainLevel - 0.1);
+    HapticFeedback.lightImpact();
   }
 
   // Reset recording state for new recording

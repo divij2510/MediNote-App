@@ -321,7 +321,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: ElevatedButton(
                                 onPressed: apiService.isConnected
-                                    ? () => audioService.retryFailedChunks()
+                                    ? () async {
+                                        await audioService.syncOfflineChunks();
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Retrying failed uploads...'),
+                                            backgroundColor: Colors.blue,
+                                          ),
+                                        );
+                                      }
                                     : null,
                                 child: const Text('Retry Upload'),
                               ),
