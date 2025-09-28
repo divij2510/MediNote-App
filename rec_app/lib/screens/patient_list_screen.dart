@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 import '../models/patient.dart';
 import '../models/session.dart';
 import '../services/api_service.dart';
-import 'recording_screen.dart';
+import 'simple_recording_screen.dart';
+import 'package:uuid/uuid.dart';
 import 'playback_screen.dart';
 
 class PatientListScreen extends StatefulWidget {
@@ -218,7 +219,18 @@ class _PatientListScreenState extends State<PatientListScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => RecordingScreen(patient: patient),
+        builder: (context) {
+          // Create a session for real-time recording
+          final session = RecordingSession(
+            id: const Uuid().v4(),
+            patientId: patient.id,
+            userId: ApiService.hardcodedUserId,
+            patientName: patient.name,
+            startTime: DateTime.now(),
+            status: 'recording',
+          );
+          return SimpleRecordingScreen(session: session);
+        },
       ),
     );
   }

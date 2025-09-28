@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../models/session.dart';
 
 import '../models/patient.dart';
-import '../models/session.dart';
 import '../models/audio_chunk.dart';
 
 class ApiService extends ChangeNotifier {
@@ -296,6 +296,19 @@ class ApiService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error updating session status: $e');
       return false;
+    }
+  }
+
+  Future<RecordingSession?> getSession(String sessionId) async {
+    try {
+      final response = await _dio.get('/v1/sessions/$sessionId');
+      if (response.statusCode == 200 && response.data != null) {
+        return RecordingSession.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting session: $e');
+      return null;
     }
   }
 

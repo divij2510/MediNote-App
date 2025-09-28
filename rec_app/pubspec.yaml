@@ -22,7 +22,6 @@ dependencies:
   
   # Native system integration
   flutter_local_notifications: ^17.2.1
-  vibration: ^1.8.4
   device_info_plus: ^9.1.0
 
   # Background services - Latest stable
@@ -30,7 +29,6 @@ dependencies:
 
   # Permissions
   permission_handler: ^11.3.1
-  device_info_plus: ^9.1.0
 
 
   # HTTP requests
@@ -52,6 +50,9 @@ dependencies:
 
   # UI components
   cupertino_icons: ^1.0.6
+  
+  # UUID generation
+  uuid: ^4.4.0
 
 dev_dependencies:
   flutter_test:

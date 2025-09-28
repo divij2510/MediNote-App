@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:vibration/vibration.dart';
 
 import '../models/session.dart';
 import '../services/realtime_audio_service.dart';
@@ -94,9 +93,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
         });
         
         // Haptic feedback
-        if (await Vibration.hasVibrator() ?? false) {
-          Vibration.vibrate(duration: 100);
-        }
+        HapticFeedback.lightImpact();
         
         // System sound
         SystemSound.play(SystemSoundType.click);
@@ -129,7 +126,13 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: _showGainControl ? _hideGainControl : _showGainControl,
+            onPressed: () {
+              if (_showGainControl) {
+                _hideGainControlPanel();
+              } else {
+                _showGainControlPanel();
+              }
+            },
             icon: Icon(_showGainControl ? Icons.tune : Icons.settings),
             tooltip: 'Gain Control',
           ),
@@ -273,13 +276,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
       builder: (context, child) {
         return Transform.scale(
           scale: audioService.isStreaming ? _pulseAnimation.value : 1.0,
-          child: AudioVisualizer(
-            amplitude: audioService.currentAmplitude,
-            isRecording: audioService.isStreaming,
-            color: Colors.red,
-            barCount: 20,
-            height: 200,
-          ),
+          child: const AudioVisualizer(),
         );
       },
     );
@@ -485,13 +482,13 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
   
-  void _showGainControl() {
+  void _showGainControlPanel() {
     setState(() {
       _showGainControl = true;
     });
   }
   
-  void _hideGainControl() {
+  void _hideGainControlPanel() {
     setState(() {
       _showGainControl = false;
     });
@@ -502,9 +499,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
       await _audioService.pauseStreaming();
       
       // Haptic feedback
-      if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(duration: 50);
-      }
+      HapticFeedback.lightImpact();
     } catch (e) {
       _showErrorDialog('Error pausing recording: $e');
     }
@@ -515,9 +510,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
       await _audioService.resumeStreaming();
       
       // Haptic feedback
-      if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(duration: 50);
-      }
+      HapticFeedback.lightImpact();
     } catch (e) {
       _showErrorDialog('Error resuming recording: $e');
     }
@@ -528,9 +521,7 @@ class _RealtimeRecordingScreenState extends State<RealtimeRecordingScreen>
       await _audioService.stopStreaming();
       
       // Haptic feedback
-      if (await Vibration.hasVibrator() ?? false) {
-        Vibration.vibrate(duration: 200);
-      }
+      HapticFeedback.mediumImpact();
       
       // Navigate back
       if (mounted) {

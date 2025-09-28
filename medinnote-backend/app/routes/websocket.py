@@ -103,6 +103,38 @@ async def handle_session_start(websocket: WebSocket, connection_id: str, message
         patient_id = message.get("patient_id")
         patient_name = message.get("patient_name")
         
+        # Create session in database
+        db = next(get_db())
+        from datetime import datetime, date
+        import uuid as uuid_lib
+        
+        # Check if session already exists
+        existing_session = db.query(DBSession).filter(DBSession.id == session_id).first()
+        
+        if not existing_session:
+            # Create new session
+            new_session = DBSession(
+                id=session_id,
+                user_id=user_id or str(uuid_lib.uuid4()),
+                patient_id=patient_id or str(uuid_lib.uuid4()),
+                patient_name=patient_name or "Unknown Patient",
+                status="recording",
+                date=date.today(),
+                start_time=datetime.now(),
+                last_chunk_number=0,
+                total_chunks_expected=None,
+                is_resumable=True,
+                last_activity=datetime.now(),
+                pause_count=0,
+                resume_count=0
+            )
+            
+            db.add(new_session)
+            db.commit()
+            logger.info(f"Created new session {session_id} for patient {patient_name}")
+        else:
+            logger.info(f"Session {session_id} already exists")
+        
         # Register session with connection
         manager.register_session(session_id, connection_id)
         
@@ -210,7 +242,7 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
         session = db.query(DBSession).filter(DBSession.id == session_id).first()
         
         if not session:
-            logger.error(f"Session {session_id} not found")
+            logger.error(f"Session {session_id} not found - session should have been created during session start")
             return
             
         # Create audio chunk record

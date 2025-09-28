@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 
 import '../models/session.dart';
 import 'api_service.dart';
@@ -131,8 +131,13 @@ class RealtimeAudioService extends ChangeNotifier {
   }
   
   Future<bool> startStreamingSession(RecordingSession session) async {
+    if (_streamingState == StreamingState.streaming) {
+      debugPrint('Already streaming, stopping current session first');
+      await stopStreaming();
+    }
+    
     if (_streamingState != StreamingState.idle) {
-      debugPrint('Cannot start streaming: already streaming');
+      debugPrint('Cannot start streaming: not in idle state');
       return false;
     }
     
@@ -205,7 +210,7 @@ class RealtimeAudioService extends ChangeNotifier {
   
   Future<void> _connectWebSocket() async {
     try {
-      final wsUrl = 'wss://${_apiService.baseUrl.replaceAll('http://', '').replaceAll('https://', '')}/ws/audio-stream';
+      final wsUrl = 'wss://${ApiService.baseUrl.replaceAll('http://', '').replaceAll('https://', '')}/ws/audio-stream';
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       
       // Send session info
@@ -235,6 +240,9 @@ class RealtimeAudioService extends ChangeNotifier {
   Future<void> _startAudioRecording() async {
     try {
       // Configure audio recording for streaming
+      final directory = await getApplicationDocumentsDirectory();
+      final tempPath = '${directory.path}/temp_recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -242,7 +250,7 @@ class RealtimeAudioService extends ChangeNotifier {
           bitRate: 128000,
           numChannels: 1,
         ),
-        path: null, // We'll stream directly, not save to file
+        path: tempPath,
       );
       
       debugPrint('Audio recording started for streaming');
@@ -274,20 +282,27 @@ class RealtimeAudioService extends ChangeNotifier {
   }
   
   void _startAudioDataCapture() {
-    // This is a simplified implementation
-    // In a real implementation, you'd capture audio data from the microphone
-    // and feed it to the stream controller
-    
-    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    // Start a timer to read audio data from the recording file
+    Timer.periodic(const Duration(milliseconds: 100), (timer) async {
       if (!_isStreaming || _isPaused) {
         timer.cancel();
         return;
       }
       
-      // Simulate audio data capture
-      // In reality, you'd capture actual audio data from the microphone
-      final audioData = Uint8List(1024); // Placeholder
-      _audioController?.add(audioData);
+      try {
+        // Get current amplitude for visualization
+        final amplitude = await _audioRecorder.getAmplitude();
+        _currentAmplitude = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
+        notifyListeners();
+        
+        // For now, we'll simulate audio data streaming
+        // In a real implementation, you'd read from the recording file
+        // and stream the actual audio data
+        final audioData = Uint8List(1024); // Placeholder for actual audio data
+        _audioController?.add(audioData);
+      } catch (e) {
+        debugPrint('Error capturing audio data: $e');
+      }
     });
   }
   

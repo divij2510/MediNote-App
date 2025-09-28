@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../services/permission_service.dart';
 import '../services/api_service.dart';
@@ -9,7 +10,7 @@ import '../services/storage_service.dart';
 import '../services/recording_test.dart';
 import '../models/session.dart';
 import 'patient_list_screen.dart';
-import 'realtime_recording_screen.dart';
+import 'simple_recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -45,18 +46,19 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Create a test session for real-time recording
       final session = RecordingSession(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: const Uuid().v4(),
         patientId: 'test-patient-id',
+        userId: 'test-user-id',
         patientName: 'Real-time Test Patient',
         startTime: DateTime.now(),
         status: 'recording',
       );
       
-      // Navigate to real-time recording screen
+      // Navigate to simple recording screen
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => RealtimeRecordingScreen(session: session),
+          builder: (context) => SimpleRecordingScreen(session: session),
         ),
       );
     } catch (e) {
@@ -252,23 +254,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.all(16),
                     textStyle: const TextStyle(fontSize: 16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              
-              // Real-time recording button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _startRealtimeRecording(),
-                  icon: const Icon(Icons.stream),
-                  label: const Text('Start Real-time Recording'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.all(16),
-                    textStyle: const TextStyle(fontSize: 16),
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
                   ),
                 ),
               ),
