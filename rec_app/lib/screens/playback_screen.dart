@@ -23,7 +23,10 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSessionAudio();
+    // Start loading immediately when screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSessionAudio();
+    });
   }
 
   @override
@@ -45,7 +48,18 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
 
     try {
       final audioService = context.read<AudioService>();
+      
+      // Start loading session audio
       await audioService.loadSessionForPlayback(widget.session.id);
+      
+      // Wait for the audio to be ready (merged or sequential)
+      while (audioService.isLoadingPlayback && mounted) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      
+      // Additional wait to ensure audio is fully ready
+      await Future.delayed(const Duration(milliseconds: 500));
+      
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -83,7 +97,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                   Text(
                     _isLoading 
                         ? 'Loading session audio...' 
-                        : 'Preparing playback...',
+                        : 'Merging audio chunks...',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -92,6 +106,15 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                       'Found ${audioService.playbackUrls.length} audio chunks',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isLoading 
+                        ? 'Downloading and preparing audio...'
+                        : 'Creating seamless audio file...',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  const LinearProgressIndicator(),
                 ],
               ),
             );

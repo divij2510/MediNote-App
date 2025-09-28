@@ -5,6 +5,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'screens/home_screen.dart';
 import 'services/api_service.dart';
 import 'services/audio_service.dart';
+import 'services/realtime_audio_service.dart';
 import 'services/storage_service.dart';
 import 'services/permission_service.dart';
 
@@ -26,6 +27,7 @@ class RecApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ApiService()),
         ChangeNotifierProvider(create: (_) => AudioService()),
+        ChangeNotifierProvider(create: (_) => RealtimeAudioService()),
         ChangeNotifierProvider(create: (_) => StorageService()),
         ChangeNotifierProvider(create: (_) => PermissionService()),
       ],

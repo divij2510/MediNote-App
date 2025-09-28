@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import users, patients, templates, sessions, audio
+from .routes import users, patients, templates, sessions, audio, websocket
 import logging
 
 # Configure logging
@@ -27,7 +27,8 @@ app.include_router(users.router, tags=["users"])
 app.include_router(patients.router, tags=["patients"])
 app.include_router(templates.router, tags=["templates"])
 app.include_router(sessions.router, tags=["sessions"])
-app.include_router(audio.router, tags=["audio"])  
+app.include_router(audio.router, tags=["audio"])
+app.include_router(websocket.router, tags=["websocket"])  
 
 @app.get("/")
 async def root():

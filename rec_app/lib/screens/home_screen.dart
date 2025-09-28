@@ -4,9 +4,12 @@ import 'package:provider/provider.dart';
 import '../services/permission_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/realtime_audio_service.dart';
 import '../services/storage_service.dart';
 import '../services/recording_test.dart';
+import '../models/session.dart';
 import 'patient_list_screen.dart';
+import 'realtime_recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,14 +29,44 @@ class _HomeScreenState extends State<HomeScreen> {
     final permissionService = context.read<PermissionService>();
     final apiService = context.read<ApiService>();
     final audioService = context.read<AudioService>();
+    final realtimeAudioService = context.read<RealtimeAudioService>();
     final storageService = context.read<StorageService>();
 
     // Initialize services
     await storageService.initialize();
     audioService.initialize(apiService, storageService);
+    realtimeAudioService.initialize(apiService, storageService);
 
     // Check permissions
     await permissionService.checkAllPermissions();
+  }
+  
+  Future<void> _startRealtimeRecording() async {
+    try {
+      // Create a test session for real-time recording
+      final session = RecordingSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        patientId: 'test-patient-id',
+        patientName: 'Real-time Test Patient',
+        startTime: DateTime.now(),
+        status: 'recording',
+      );
+      
+      // Navigate to real-time recording screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RealtimeRecordingScreen(session: session),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error starting real-time recording: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -219,6 +252,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.all(16),
                     textStyle: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              
+              // Real-time recording button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _startRealtimeRecording(),
+                  icon: const Icon(Icons.stream),
+                  label: const Text('Start Real-time Recording'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.all(16),
+                    textStyle: const TextStyle(fontSize: 16),
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ),
