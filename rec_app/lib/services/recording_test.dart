@@ -30,8 +30,9 @@ class RecordingTest {
   }
 
   static Future<void> testAmplitudeMonitoring() async {
+    AudioRecorder? recorder;
     try {
-      final recorder = AudioRecorder();
+      recorder = AudioRecorder();
       
       // Start a short recording to test amplitude
       await recorder.start(
@@ -44,16 +45,27 @@ class RecordingTest {
       );
 
       // Test amplitude for 3 seconds
-      for (int i = 0; i < 30; i++) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        final amplitude = await recorder.getAmplitude();
-        debugPrint('Test amplitude: ${amplitude.current}');
+      for (int i = 0; i < 15; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        try {
+          final amplitude = await recorder.getAmplitude();
+          final percentage = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
+          debugPrint('Test amplitude: ${amplitude.current} dB -> ${percentage.toStringAsFixed(1)}%');
+        } catch (e) {
+          debugPrint('Amplitude reading error: $e');
+        }
       }
 
       await recorder.stop();
       debugPrint('Amplitude monitoring test completed');
     } catch (e) {
       debugPrint('Amplitude monitoring test failed: $e');
+    } finally {
+      try {
+        await recorder?.dispose();
+      } catch (e) {
+        debugPrint('Error disposing recorder: $e');
+      }
     }
   }
 }

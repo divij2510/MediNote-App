@@ -19,6 +19,7 @@ enum RecordingState { idle, recording, paused, stopped, error }
 class AudioService extends ChangeNotifier {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _mounted = true;
   
   RecordingState _recordingState = RecordingState.idle;
   RecordingSession? _currentSession;
@@ -293,13 +294,17 @@ class AudioService extends ChangeNotifier {
   }
 
   void _startAmplitudeMonitoring() {
-    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      if (_recordingState == RecordingState.recording) {
+    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+      if (_recordingState == RecordingState.recording && _isRecording) {
         try {
           final amplitude = await _audioRecorder.getAmplitude();
-          _currentAmplitude = amplitude.current;
-          debugPrint('Amplitude: ${_currentAmplitude}');
-          notifyListeners();
+          // Convert dB to percentage (0-100) for display
+          // -60 dB = 0%, 0 dB = 100%
+          _currentAmplitude = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
+          debugPrint('Amplitude: ${amplitude.current} dB -> ${_currentAmplitude.toStringAsFixed(1)}%');
+          if (mounted) {
+            notifyListeners();
+          }
         } catch (e) {
           _currentAmplitude = 0.0;
           debugPrint('Amplitude error: $e');
@@ -541,6 +546,7 @@ class AudioService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _mounted = false;
     _chunkTimer?.cancel();
     _durationTimer?.cancel();
     _amplitudeTimer?.cancel();

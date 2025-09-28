@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import users, patients, templates, sessions
+from .routes import users, patients, templates, sessions, audio
 import logging
 
 # Configure logging
