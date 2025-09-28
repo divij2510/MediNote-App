@@ -28,8 +28,9 @@ class ApiService extends ChangeNotifier {
   
   void _setHardcodedUser() {
     _userId = hardcodedUserId;
-    // Set a mock auth token for the hardcoded user
-    _authToken = 'mock_token_for_${hardcodedUserId}';
+    // Use your actual Supabase anon key from your .env file
+    // Replace this with your real Supabase anon key
+    _authToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltenRhZnptY2Zid2ZiYW5pdHN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMDY5NDUsImV4cCI6MjA3NDU4Mjk0NX0.sOWS2PbXg3H1-aUy9JYgBKYWnXPPlv0cl3haIN8osz0';
   }
 
   void _initializeNetworkListener() {
@@ -237,11 +238,12 @@ class ApiService extends ChangeNotifier {
       final gcsPath = presignedData['gcsPath'] as String;
       final publicUrl = presignedData['publicUrl'] as String;
 
-      // Step 2: Upload to Supabase Storage (or mock storage)
       final uploadResponse = await http.put(
         Uri.parse(uploadUrl),
         headers: {
           'Content-Type': chunk.mimeType,
+          'Authorization': 'Bearer $_authToken',
+          'x-upsert': 'true',
         },
         body: chunk.data,
       );
@@ -279,7 +281,7 @@ class ApiService extends ChangeNotifier {
     }
   }
 
-  Future<bool> updateSessionStatus(String sessionId, String status, int totalChunks) async {
+  Future<bool> updateSessionStatus(String sessionId, String status, int totalChunks, [int? durationSeconds]) async {
     try {
       // Note: This endpoint doesn't exist in the current backend
       // But we keep it for future compatibility
@@ -287,6 +289,7 @@ class ApiService extends ChangeNotifier {
         'status': status,
         'totalChunks': totalChunks,
         'endTime': DateTime.now().toIso8601String(),
+        if (durationSeconds != null) 'duration': durationSeconds,
       });
 
       return response.statusCode == 200;

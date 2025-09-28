@@ -118,6 +118,7 @@ async def notify_chunk_uploaded(
     crud.update_session_status(
         db=db,
         session_id=notification.sessionId,
+        status='recording',  # Keep status as recording while chunks are being uploaded
         last_chunk_number=notification.chunkNumber,
         total_chunks_expected=notification.totalChunksClient if notification.isLast else None
     )
@@ -364,12 +365,17 @@ async def patch_session_status(
     status = request.get("status", session.status)
     total_chunks = request.get("totalChunks", session.total_chunks_expected)
     end_time = request.get("endTime", session.end_time)
+    duration = request.get("duration", None)
     
     update_data = {
         "status": status,
         "total_chunks_expected": total_chunks,
         "end_time": end_time
     }
+    
+    # Add duration if provided
+    if duration is not None:
+        update_data["duration"] = duration
     
     crud.update_session_status(db, session_id, **update_data)
     return {"success": True, "status": status}

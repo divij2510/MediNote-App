@@ -154,6 +154,11 @@ class AudioService extends ChangeNotifier {
       debugPrint('Cannot start recording: already in state $_recordingState');
       return false;
     }
+    
+    if (_currentSession != null) {
+      debugPrint('Cannot start recording: session already exists');
+      return false;
+    }
 
     try {
       // Request permissions first
@@ -272,7 +277,8 @@ class AudioService extends ChangeNotifier {
         await _apiService.updateSessionStatus(
             _currentSession!.id,
             'completed',
-            _currentChunkNumber
+            _currentChunkNumber,
+            _recordingDuration.inSeconds
         );
       }
 
@@ -495,7 +501,8 @@ class AudioService extends ChangeNotifier {
       // Get session audio URLs from backend
       final audioData = await _apiService.getSessionAudio(sessionId);
       if (audioData != null) {
-        _playbackUrls = audioData['streaming_urls'] ?? [];
+        final urls = audioData['streaming_urls'] as List<dynamic>? ?? [];
+        _playbackUrls = urls.cast<String>();
         debugPrint('Loaded ${_playbackUrls.length} audio chunks for playback');
       }
     } catch (e) {

@@ -254,6 +254,11 @@ class _RecordingControlsState extends State<RecordingControls> {
   }
 
   Future<void> _startRecording(AudioService audioService, ApiService apiService) async {
+    if (_isStarting) {
+      debugPrint('Already starting recording, ignoring duplicate request');
+      return;
+    }
+    
     setState(() {
       _isStarting = true;
     });
