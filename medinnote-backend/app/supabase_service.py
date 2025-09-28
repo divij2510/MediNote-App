@@ -26,7 +26,7 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
     
-    def generate_presigned_url(self, bucket_name: str, file_path: str, expires_in: int = 3600) -> dict:
+    def generate_presigned_url(self, bucket_name: str = "recording_app", file_path: str, expires_in: int = 3600) -> dict:
         """Generate presigned URL for upload with proper auth headers"""
         try:
             if not self.supabase:
@@ -111,7 +111,7 @@ class SupabaseService:
             if not self.supabase:
                 return []
             
-            bucket_name = "medinnote-audio"
+            bucket_name = "recording_app"
             folder_path = f"sessions/{session_id}/"
             
             # List all files in the session folder

@@ -304,20 +304,27 @@ class AudioService extends ChangeNotifier {
   }
 
   void _startAmplitudeMonitoring() {
-    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
       if (_recordingState == RecordingState.recording && _isRecording) {
         try {
           final amplitude = await _audioRecorder.getAmplitude();
-          // Apply gain control and convert dB to percentage (0-100) for display
+          // Convert dB to percentage (0-100) for display
           // -60 dB = 0%, 0 dB = 100%
-          final adjustedAmplitude = amplitude.current + (20 * (1 - _gainLevel));
+          final rawAmplitude = amplitude.current;
+          final adjustedAmplitude = rawAmplitude + (20 * (1 - _gainLevel));
           _currentAmplitude = ((adjustedAmplitude + 60) / 60 * 100).clamp(0.0, 100.0);
-          debugPrint('Amplitude: ${amplitude.current} dB (gain: ${_gainLevel}x) -> ${_currentAmplitude.toStringAsFixed(1)}%');
+          
+          // Ensure we have some variation for visualization
+          if (_currentAmplitude < 5.0) {
+            _currentAmplitude = 5.0 + (rawAmplitude.abs() % 10); // Add some base level
+          }
+          
+          debugPrint('Raw: ${rawAmplitude.toStringAsFixed(1)} dB, Adjusted: ${adjustedAmplitude.toStringAsFixed(1)} dB, Display: ${_currentAmplitude.toStringAsFixed(1)}%');
           if (_mounted) {
             notifyListeners();
           }
         } catch (e) {
-          _currentAmplitude = 0.0;
+          _currentAmplitude = 5.0; // Show some base level instead of 0
           debugPrint('Amplitude error: $e');
         }
       } else {

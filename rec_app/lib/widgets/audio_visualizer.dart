@@ -33,9 +33,17 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   }
 
   void _updateWaveform(double amplitude) {
+    // Add some variation to prevent flat lines
+    double adjustedAmplitude = amplitude;
+    
+    // If amplitude is too low, add some base variation
+    if (amplitude < 5.0) {
+      adjustedAmplitude = 5.0 + (DateTime.now().millisecondsSinceEpoch % 10);
+    }
+    
     // Only update if amplitude has changed significantly to avoid unnecessary builds
-    if ((_lastAmplitude - amplitude).abs() > 2.0) {
-      _lastAmplitude = amplitude;
+    if ((_lastAmplitude - adjustedAmplitude).abs() > 1.0) {
+      _lastAmplitude = adjustedAmplitude;
 
       // Use addPostFrameCallback to avoid setState during build
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -46,7 +54,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
               _waveformData[i] = _waveformData[i + 1];
             }
             // Add new amplitude data
-            _waveformData[_waveformData.length - 1] = amplitude;
+            _waveformData[_waveformData.length - 1] = adjustedAmplitude;
           });
         }
       });

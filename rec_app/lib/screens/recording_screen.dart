@@ -123,190 +123,191 @@ class _RecordingScreenState extends State<RecordingScreen>
 
     return Consumer<AudioService>(
       builder: (context, audioService, child) {
-        return Column(
-          children: [
-            // Patient info card
-            Card(
-              margin: const EdgeInsets.all(16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          child: Text(
-                            widget.patient.name[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.patient.name,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (widget.patient.pronouns != null)
-                                Text(
-                                  'Pronouns: ${widget.patient.pronouns}',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (widget.patient.background != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Background: ${widget.patient.background}',
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            // Recording status
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          _getStatusIcon(audioService.recordingState),
-                          color: _getStatusColor(audioService.recordingState),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _getStatusText(audioService.recordingState),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: _getStatusColor(audioService.recordingState),
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          _formatDuration(audioService.recordingDuration),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (audioService.pendingChunks.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // Patient info card
+              Card(
+                margin: const EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Row(
                         children: [
-                          Icon(
-                            Icons.cloud_upload,
-                            size: 16,
-                            color: Colors.orange.shade600,
+                          CircleAvatar(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            child: Text(
+                              widget.patient.name[0].toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${audioService.pendingChunks.length} chunks uploading',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.orange.shade600,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.patient.name,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (widget.patient.pronouns != null)
+                                  Text(
+                                    'Pronouns: ${widget.patient.pronouns}',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
                       ),
+                      if (widget.patient.background != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Background: ${widget.patient.background}',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
 
-            // Audio visualizer
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                child: const AudioVisualizer(),
-              ),
-            ),
-
-            // Gain control
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Consumer<AudioService>(
-                  builder: (context, audioService, child) {
-                    return Column(
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.volume_up),
-                            const SizedBox(width: 8),
-                            const Text('Gain Control'),
-                            const Spacer(),
-                            Text('${(audioService.gainLevel * 100).toInt()}%'),
-                          ],
-                        ),
+              // Recording status
+              Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _getStatusIcon(audioService.recordingState),
+                            color: _getStatusColor(audioService.recordingState),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _getStatusText(audioService.recordingState),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _getStatusColor(audioService.recordingState),
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _formatDuration(audioService.recordingDuration),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (audioService.pendingChunks.isNotEmpty) ...[
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            IconButton(
-                              onPressed: audioService.decreaseGain,
-                              icon: const Icon(Icons.remove),
-                              tooltip: 'Decrease Gain',
+                            Icon(
+                              Icons.cloud_upload,
+                              size: 16,
+                              color: Colors.orange.shade600,
                             ),
-                            Expanded(
-                              child: Slider(
-                                value: audioService.gainLevel,
-                                min: 0.1,
-                                max: 3.0,
-                                divisions: 29,
-                                onChanged: audioService.setGainLevel,
+                            const SizedBox(width: 4),
+                            Text(
+                              '${audioService.pendingChunks.length} chunks uploading',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange.shade600,
                               ),
-                            ),
-                            IconButton(
-                              onPressed: audioService.increaseGain,
-                              icon: const Icon(Icons.add),
-                              tooltip: 'Increase Gain',
                             ),
                           ],
                         ),
                       ],
-                    );
+                    ],
+                  ),
+                ),
+              ),
+
+              // Audio visualizer
+              Container(
+                height: 200,
+                margin: const EdgeInsets.all(16),
+                child: const AudioVisualizer(),
+              ),
+
+              // Gain control
+              Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Consumer<AudioService>(
+                    builder: (context, audioService, child) {
+                      return Column(
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.volume_up),
+                              const SizedBox(width: 8),
+                              const Text('Gain Control'),
+                              const Spacer(),
+                              Text('${(audioService.gainLevel * 100).toInt()}%'),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: audioService.decreaseGain,
+                                icon: const Icon(Icons.remove),
+                                tooltip: 'Decrease Gain',
+                              ),
+                              Expanded(
+                                child: Slider(
+                                  value: audioService.gainLevel,
+                                  min: 0.1,
+                                  max: 3.0,
+                                  divisions: 29,
+                                  onChanged: audioService.setGainLevel,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: audioService.increaseGain,
+                                icon: const Icon(Icons.add),
+                                tooltip: 'Increase Gain',
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+
+              // Recording controls
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: RecordingControls(
+                  patient: widget.patient,
+                  onRecordingComplete: () {
+                    // Don't navigate automatically - let user decide
+                    // Navigator.pop(context);
                   },
                 ),
               ),
-            ),
-
-            // Recording controls
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: RecordingControls(
-                patient: widget.patient,
-                onRecordingComplete: () {
-                  // Don't navigate automatically - let user decide
-                  // Navigator.pop(context);
-                },
-              ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

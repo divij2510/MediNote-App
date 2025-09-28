@@ -352,9 +352,7 @@ async def update_session_status(
 @router.patch("/v1/session/{session_id}")
 async def patch_session_status(
     session_id: str,
-    status: str,
-    totalChunks: int,
-    endTime: str,
+    request: dict,
     db: Session = Depends(get_db),
     current_user = Depends(get_hardcoded_user)
 ):
@@ -363,10 +361,15 @@ async def patch_session_status(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
+    # Extract data from request body
+    status = request.get("status", session.status)
+    total_chunks = request.get("totalChunks", session.total_chunks_expected)
+    end_time = request.get("endTime", session.end_time)
+    
     update_data = {
         "status": status,
-        "total_chunks_expected": totalChunks,
-        "end_time": endTime
+        "total_chunks_expected": total_chunks,
+        "end_time": end_time
     }
     
     crud.update_session_status(db, session_id, **update_data)
