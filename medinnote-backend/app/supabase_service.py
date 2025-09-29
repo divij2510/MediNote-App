@@ -130,65 +130,104 @@ class SupabaseService:
             
             bucket_name = "recording_app"
             
-            # Create a temporary file and upload it
-            import tempfile
-            import os
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
-                temp_file.write(audio_data)
-                temp_file_path = temp_file.name
-            
+            # Ensure bucket exists
             try:
-                # Upload the file to Supabase
-                with open(temp_file_path, 'rb') as f:
-                    result = self.supabase.storage.from_(bucket_name).upload(
-                        path=file_path,
-                        file=f,
-                        file_options={
-                            "content-type": mime_type,
-                            "upsert": True
-                        }
-                    )
+                buckets = self.supabase.storage.list_buckets()
+                bucket_exists = any(bucket['name'] == bucket_name for bucket in buckets)
+                if not bucket_exists:
+                    logger.info(f"Creating bucket: {bucket_name}")
+                    self.supabase.storage.create_bucket(bucket_name, public=True)
+            except Exception as e:
+                logger.warning(f"Could not check/create bucket: {e}")
+            
+            # Upload directly from bytes without temporary file
+            try:
+                # Method 1: Direct bytes upload
+                result = self.supabase.storage.from_(bucket_name).upload(
+                    path=file_path,
+                    file=audio_data,
+                    file_options={
+                        "content-type": mime_type,
+                        "upsert": True
+                    }
+                )
                 
-                # Check if upload was successful
-                # Supabase upload can return either a dict or a boolean
-                if isinstance(result, bool):
-                    if result:
-                        # Get public URL
-                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                        
-                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                        return {
-                            "success": True,
-                            "path": file_path,
-                            "public_url": public_url
-                        }
-                    else:
-                        logger.error(f"Upload failed: Boolean result was False")
-                        return {"success": False, "error": "Upload failed - boolean result was False"}
+                # Handle different response types
+                if result is True:
+                    # Boolean True means success
+                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                    logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                    return {
+                        "success": True,
+                        "path": file_path,
+                        "public_url": public_url
+                    }
                 elif isinstance(result, dict):
-                    if result and not result.get('error'):
-                        # Get public URL
-                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                        
-                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                        return {
-                            "success": True,
-                            "path": file_path,
-                            "public_url": public_url
-                        }
-                    else:
+                    if result.get('error'):
                         error_msg = result.get('error', 'Upload failed')
                         logger.error(f"Upload failed: {error_msg}")
                         return {"success": False, "error": error_msg}
+                    else:
+                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": public_url
+                        }
                 else:
-                    logger.error(f"Unexpected upload result type: {type(result)}")
-                    return {"success": False, "error": f"Unexpected upload result type: {type(result)}"}
+                    # Try to get public URL anyway
+                    try:
+                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                        logger.info(f"Audio chunk uploaded (unknown result type): {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": public_url
+                        }
+                    except Exception as url_error:
+                        logger.error(f"Could not get public URL: {url_error}")
+                        return {"success": False, "error": f"Upload result unclear: {type(result)}"}
+                        
+            except Exception as upload_error:
+                logger.error(f"Direct upload failed: {upload_error}")
+                
+                # Fallback: Use temporary file method
+                import tempfile
+                import os
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                    temp_file.write(audio_data)
+                    temp_file_path = temp_file.name
+                
+                try:
+                    with open(temp_file_path, 'rb') as f:
+                        result = self.supabase.storage.from_(bucket_name).upload(
+                            path=file_path,
+                            file=f,
+                            file_options={
+                                "content-type": mime_type,
+                                "upsert": True
+                            }
+                        )
                     
-            finally:
-                # Clean up temporary file
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
+                    if result is True or (isinstance(result, dict) and not result.get('error')):
+                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                        logger.info(f"Audio chunk uploaded via temp file: {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": public_url
+                        }
+                    else:
+                        error_msg = result.get('error', 'Upload failed') if isinstance(result, dict) else 'Upload failed'
+                        logger.error(f"Temp file upload failed: {error_msg}")
+                        return {"success": False, "error": error_msg}
+                        
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
                 
         except Exception as e:
             logger.error(f"Error uploading audio chunk: {e}")

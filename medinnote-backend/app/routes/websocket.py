@@ -69,7 +69,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive(), timeout=30.0)
             except asyncio.TimeoutError:
                 # Send ping to keep connection alive
-                await websocket.ping()
+                await websocket.send_text(json.dumps({"type": "ping"}))
                 continue
                 
             if data["type"] == "websocket.receive":
@@ -104,7 +104,7 @@ async def keepalive_ping(websocket: WebSocket, connection_id: str):
         while True:
             await asyncio.sleep(30)  # Send ping every 30 seconds
             try:
-                await websocket.ping()
+                await websocket.send_text(json.dumps({"type": "ping"}))
             except Exception as e:
                 logger.error(f"Keepalive ping failed: {e}")
                 break
@@ -287,19 +287,39 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             file_size=len(audio_data)
         )
         
-        # Upload to Supabase Storage
+        # Upload to Supabase Storage with retry logic
         chunk_path = f"sessions/{session_id}/chunk_{chunk.chunk_number}.mp3"
-        upload_result = await supabase_service.upload_audio_chunk(
-            chunk_path, 
-            audio_data, 
-            "audio/mp4"
-        )
+        max_retries = 3
+        upload_success = False
         
-        if upload_result and upload_result.get("success"):
-            chunk.gcs_path = chunk_path
-            chunk.public_url = upload_result.get("public_url")
-            chunk.is_processed = True
-            
+        for attempt in range(max_retries):
+            try:
+                upload_result = await supabase_service.upload_audio_chunk(
+                    chunk_path, 
+                    audio_data, 
+                    "audio/mp4"
+                )
+                
+                if upload_result and upload_result.get("success"):
+                    chunk.gcs_path = chunk_path
+                    chunk.public_url = upload_result.get("public_url")
+                    chunk.is_processed = True
+                    chunk.upload_status = "uploaded"
+                    upload_success = True
+                    logger.info(f"Audio chunk {chunk.chunk_number} uploaded successfully for session {session_id}")
+                    break
+                else:
+                    error_msg = upload_result.get('error', 'Unknown upload error') if upload_result else 'Upload result is None'
+                    logger.warning(f"Upload attempt {attempt + 1} failed for session {session_id}: {error_msg}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)  # Wait before retry
+                    
+            except Exception as upload_error:
+                logger.warning(f"Upload attempt {attempt + 1} failed with exception: {upload_error}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)  # Wait before retry
+        
+        if upload_success:
             # Save to database
             db.add(chunk)
             db.commit()
@@ -311,8 +331,12 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             
             logger.info(f"Audio chunk {chunk.chunk_number} processed for session {session_id}")
         else:
-            error_msg = upload_result.get('error', 'Unknown upload error') if upload_result else 'Upload result is None'
-            logger.error(f"Failed to upload audio chunk for session {session_id}: {error_msg}")
+            # Mark as failed
+            chunk.upload_status = "failed"
+            chunk.retry_count = max_retries
+            db.add(chunk)
+            db.commit()
+            logger.error(f"Failed to upload audio chunk for session {session_id} after {max_retries} attempts")
             
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}")
