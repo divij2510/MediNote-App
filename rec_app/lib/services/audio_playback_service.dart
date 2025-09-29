@@ -125,7 +125,9 @@ class AudioPlaybackService extends ChangeNotifier {
   Future<void> stop() async {
     try {
       await _audioPlayer.stop();
+      _isPlaying = false;
       _position = Duration.zero;
+      notifyListeners();
       debugPrint('Audio playback stopped');
     } catch (e) {
       debugPrint('Error stopping audio: $e');
@@ -138,7 +140,7 @@ class AudioPlaybackService extends ChangeNotifier {
   Future<void> seekTo(Duration position) async {
     try {
       await _audioPlayer.seek(position);
-      debugPrint('Seeked to: $position');
+      debugPrint('Audio seeked to: $position');
     } catch (e) {
       debugPrint('Error seeking audio: $e');
       _errorMessage = 'Failed to seek audio: $e';
@@ -146,21 +148,14 @@ class AudioPlaybackService extends ChangeNotifier {
     }
   }
   
-  // Get formatted time string
-  String formatDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-  
   // Set playback speed
   Future<void> setSpeed(double speed) async {
     try {
       await _audioPlayer.setSpeed(speed);
-      debugPrint('Playback speed set to: $speed');
+      debugPrint('Audio speed set to: $speed');
     } catch (e) {
-      debugPrint('Error setting playback speed: $e');
-      _errorMessage = 'Failed to set playback speed: $e';
+      debugPrint('Error setting speed: $e');
+      _errorMessage = 'Failed to set speed: $e';
       notifyListeners();
     }
   }
@@ -171,7 +166,7 @@ class AudioPlaybackService extends ChangeNotifier {
     notifyListeners();
   }
   
-  @override
+  // Dispose resources
   void dispose() {
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();

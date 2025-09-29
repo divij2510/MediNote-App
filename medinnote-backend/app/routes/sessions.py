@@ -397,11 +397,20 @@ async def get_audio_stream_url(
         if str(session.user_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # For now, return a placeholder URL
-        # In production, this would generate a presigned URL or streaming URL
-        stream_url = f"https://medinote-app-backend-api.onrender.com/v1/session/{session_id}/audio/play"
+        # Get audio chunks for this session
+        audio_chunks = crud.get_audio_chunks_by_session(db, session_id=session_id)
         
-        return {"stream_url": stream_url}
+        if not audio_chunks:
+            raise HTTPException(status_code=404, detail="No audio chunks found for this session")
+        
+        # For now, return the first chunk's local static URL
+        # TODO: In the future, we could combine all chunks into a single audio file
+        first_chunk = audio_chunks[0]
+        if first_chunk.public_url:
+            # Return local static URL
+            return {"audio_url": first_chunk.public_url}
+        else:
+            raise HTTPException(status_code=404, detail="Audio file not available")
         
     except Exception as e:
         logger.error(f"Error getting audio stream URL: {e}")

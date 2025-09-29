@@ -69,21 +69,34 @@ async def websocket_endpoint(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive(), timeout=30.0)
             except asyncio.TimeoutError:
                 # Send ping to keep connection alive
-                await websocket.send_text(json.dumps({"type": "ping"}))
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception as ping_error:
+                    logger.error(f"Failed to send ping: {ping_error}")
+                    break
                 continue
                 
             if data["type"] == "websocket.receive":
                 if "text" in data:
                     # Handle text messages (session info, commands)
-                    message = json.loads(data["text"])
-                    await handle_text_message(websocket, connection_id, message)
+                    try:
+                        message = json.loads(data["text"])
+                        await handle_text_message(websocket, connection_id, message)
+                    except Exception as text_error:
+                        logger.error(f"Error handling text message: {text_error}")
                 elif "bytes" in data:
                     # Handle binary data (audio stream)
-                    audio_data = data["bytes"]
-                    await handle_audio_data(websocket, connection_id, audio_data)
+                    try:
+                        audio_data = data["bytes"]
+                        await handle_audio_data(websocket, connection_id, audio_data)
+                    except Exception as audio_error:
+                        logger.error(f"Error handling audio data: {audio_error}")
             elif data["type"] == "websocket.ping":
                 # Handle ping
-                await websocket.pong()
+                try:
+                    await websocket.pong()
+                except Exception as pong_error:
+                    logger.error(f"Failed to send pong: {pong_error}")
                     
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {connection_id}")
@@ -102,13 +115,20 @@ async def keepalive_ping(websocket: WebSocket, connection_id: str):
     """Send periodic ping to keep connection alive"""
     try:
         while True:
-            await asyncio.sleep(30)  # Send ping every 30 seconds
+            await asyncio.sleep(15)  # Send ping every 15 seconds (more frequent)
             try:
-                await websocket.send_text(json.dumps({"type": "ping"}))
+                # Check if websocket is still connected
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                    logger.debug(f"Sent keepalive ping to {connection_id}")
+                else:
+                    logger.info(f"WebSocket {connection_id} is no longer connected, stopping keepalive")
+                    break
             except Exception as e:
                 logger.error(f"Keepalive ping failed: {e}")
                 break
     except asyncio.CancelledError:
+        logger.debug(f"Keepalive task cancelled for {connection_id}")
         pass
 
 async def handle_text_message(websocket: WebSocket, connection_id: str, message: dict):
@@ -332,9 +352,17 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}")
+        if db:
+            try:
+                db.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Error during rollback: {rollback_error}")
     finally:
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception as close_error:
+                logger.error(f"Error closing database session: {close_error}")
 
 @router.get("/ws/health")
 async def websocket_health():

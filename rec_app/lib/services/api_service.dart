@@ -355,7 +355,7 @@ class ApiService extends ChangeNotifier {
       
       if (response.statusCode == 200) {
         final data = response.data;
-        return data['stream_url'] as String?;
+        return data['audio_url'] as String?;
       }
       
       return null;
