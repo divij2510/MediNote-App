@@ -130,29 +130,31 @@ class SupabaseService:
             
             bucket_name = "recording_app"
             
-            # Ensure bucket exists
-            try:
-                buckets = self.supabase.storage.list_buckets()
-                bucket_exists = any(bucket['name'] == bucket_name for bucket in buckets)
-                if not bucket_exists:
-                    logger.info(f"Creating bucket: {bucket_name}")
-                    self.supabase.storage.create_bucket(bucket_name)
-            except Exception as e:
-                logger.warning(f"Could not check/create bucket: {e}")
+            # Skip bucket creation since it already exists and we don't have permissions
+            # The bucket 'recording_app' already exists in your dashboard
+            logger.info(f"Using existing bucket: {bucket_name}")
             
-            # Upload using BytesIO to create a file-like object
+            # Upload using temporary file (Supabase expects file path, not BytesIO)
             try:
+                import tempfile
+                import os
                 import io
-                # Method 1: BytesIO upload
-                audio_file = io.BytesIO(audio_data)
-                result = self.supabase.storage.from_(bucket_name).upload(
-                    path=file_path,
-                    file=audio_file,
-                    file_options={
-                        "content-type": mime_type,
-                        "upsert": True
-                    }
-                )
+                
+                # Create temporary file from BytesIO data
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                    temp_file.write(audio_data)
+                    temp_file_path = temp_file.name
+                
+                try:
+                    # Upload from file path
+                    result = self.supabase.storage.from_(bucket_name).upload(
+                        path=file_path,
+                        file=temp_file_path,
+                        file_options={
+                            "content-type": mime_type,
+                            "upsert": True
+                        }
+                    )
                 
                 # Handle different response types
                 if result is True:
@@ -187,13 +189,18 @@ class SupabaseService:
                             "path": file_path,
                             "public_url": public_url
                         }
-                    except Exception as url_error:
-                        logger.error(f"Could not get public URL: {url_error}")
-                        return {"success": False, "error": f"Upload result unclear: {type(result)}"}
-                        
-            except Exception as upload_error:
-                logger.error(f"BytesIO upload failed: {upload_error}")
-                return {"success": False, "error": f"Upload failed: {upload_error}"}
+                         except Exception as url_error:
+                             logger.error(f"Could not get public URL: {url_error}")
+                             return {"success": False, "error": f"Upload result unclear: {type(result)}"}
+                             
+                 finally:
+                     # Clean up temporary file
+                     if os.path.exists(temp_file_path):
+                         os.unlink(temp_file_path)
+                         
+             except Exception as upload_error:
+                 logger.error(f"Temp file upload failed: {upload_error}")
+                 return {"success": False, "error": f"Upload failed: {upload_error}"}
                 
         except Exception as e:
             logger.error(f"Error uploading audio chunk: {e}")
