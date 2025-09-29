@@ -150,18 +150,40 @@ class SupabaseService:
                         }
                     )
                 
-                if result:
-                    # Get public URL
-                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                    
-                    logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                    return {
-                        "success": True,
-                        "path": file_path,
-                        "public_url": public_url
-                    }
+                # Check if upload was successful
+                # Supabase upload can return either a dict or a boolean
+                if isinstance(result, bool):
+                    if result:
+                        # Get public URL
+                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                        
+                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": public_url
+                        }
+                    else:
+                        logger.error(f"Upload failed: Boolean result was False")
+                        return {"success": False, "error": "Upload failed - boolean result was False"}
+                elif isinstance(result, dict):
+                    if result and not result.get('error'):
+                        # Get public URL
+                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                        
+                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": public_url
+                        }
+                    else:
+                        error_msg = result.get('error', 'Upload failed')
+                        logger.error(f"Upload failed: {error_msg}")
+                        return {"success": False, "error": error_msg}
                 else:
-                    return {"success": False, "error": "Upload failed"}
+                    logger.error(f"Unexpected upload result type: {type(result)}")
+                    return {"success": False, "error": f"Unexpected upload result type: {type(result)}"}
                     
             finally:
                 # Clean up temporary file

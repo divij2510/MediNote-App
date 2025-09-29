@@ -295,7 +295,7 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             "audio/mp4"
         )
         
-        if upload_result.get("success"):
+        if upload_result and upload_result.get("success"):
             chunk.gcs_path = chunk_path
             chunk.public_url = upload_result.get("public_url")
             chunk.is_processed = True
@@ -311,7 +311,8 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             
             logger.info(f"Audio chunk {chunk.chunk_number} processed for session {session_id}")
         else:
-            logger.error(f"Failed to upload audio chunk for session {session_id}")
+            error_msg = upload_result.get('error', 'Unknown upload error') if upload_result else 'Upload result is None'
+            logger.error(f"Failed to upload audio chunk for session {session_id}: {error_msg}")
             
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}")
