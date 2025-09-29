@@ -6,7 +6,7 @@ from .. import crud, schemas
 from ..database import get_db
 from ..config import settings
 from ..supabase_service import supabase_service
-from ..auth import get_hardcoded_user
+from ..auth import get_hardcoded_user, get_current_user
 import logging
 
 logger = logging.getLogger(__name__)
