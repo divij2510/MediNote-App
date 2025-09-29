@@ -125,33 +125,52 @@ class SupabaseService:
         """Upload audio chunk to Supabase storage"""
         try:
             if not self.supabase:
-                # Mock upload for development
-                logger.info(f"Mock upload: {file_path} ({len(audio_data)} bytes)")
-                return {
-                    "success": True,
-                    "path": file_path,
-                    "public_url": f"https://mock-storage.local/{file_path}",
-                    "mock": True
-                }
+                logger.error("Supabase client not initialized")
+                return {"success": False, "error": "Supabase not configured"}
             
             bucket_name = "recording_app"
             
-            # For now, use mock upload since Supabase client has issues with binary data
-            # In production, you'd implement proper file upload
-            logger.info(f"Mock upload: {file_path} ({len(audio_data)} bytes)")
-            return {
-                "success": True,
-                "path": file_path,
-                "public_url": f"https://mock-storage.local/{file_path}",
-                "mock": True
-            }
+            # Create a temporary file and upload it
+            import tempfile
+            import os
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                temp_file.write(audio_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Upload the file to Supabase
+                with open(temp_file_path, 'rb') as f:
+                    result = self.supabase.storage.from_(bucket_name).upload(
+                        path=file_path,
+                        file=f,
+                        file_options={
+                            "content-type": mime_type,
+                            "upsert": True
+                        }
+                    )
+                
+                if result:
+                    # Get public URL
+                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                    
+                    logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                    return {
+                        "success": True,
+                        "path": file_path,
+                        "public_url": public_url
+                    }
+                else:
+                    return {"success": False, "error": "Upload failed"}
+                    
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
                 
         except Exception as e:
             logger.error(f"Error uploading audio chunk: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
 # Global instance
 supabase_service = SupabaseService()

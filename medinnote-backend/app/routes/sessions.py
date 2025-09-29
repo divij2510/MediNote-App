@@ -424,9 +424,18 @@ async def stream_audio(
         if str(session.user_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # For now, return a mock audio URL
-        # In production, you'd retrieve actual audio chunks
-        return {"audio_url": f"https://mock-storage.local/sessions/{session_id}/audio.mp3"}
+        # Get the first audio chunk for this session
+        audio_chunks = crud.get_audio_chunks_by_session(db, session_id=session_id)
+        
+        if not audio_chunks:
+            raise HTTPException(status_code=404, detail="No audio chunks found for this session")
+        
+        # Return the first chunk's URL
+        first_chunk = audio_chunks[0]
+        if first_chunk.public_url:
+            return {"audio_url": first_chunk.public_url}
+        else:
+            raise HTTPException(status_code=404, detail="Audio file not available")
         
     except Exception as e:
         logger.error(f"Error streaming audio: {e}")

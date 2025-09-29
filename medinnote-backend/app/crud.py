@@ -297,12 +297,12 @@ def get_failed_chunks(db: Session, session_id: str):
     except ValueError:
         return []
 
-# def get_audio_chunks_by_session(db: Session, session_id: str) -> List[models.AudioChunk]:
-#     """Get all audio chunks for a session"""
-#     try:
-#         session_uuid = convert_to_uuid(session_id)
-#         return db.query(models.AudioChunk).filter(
-#             models.AudioChunk.session_id == session_uuid
-#         ).order_by(models.AudioChunk.chunk_number).all()
-#     except ValueError:
-#         return []
+def get_audio_chunks_by_session(db: Session, session_id: str) -> List[models.AudioChunk]:
+    """Get all audio chunks for a session"""
+    try:
+        session_uuid = convert_to_uuid(session_id)
+        return db.query(models.AudioChunk).filter(
+            models.AudioChunk.session_id == session_uuid
+        ).order_by(models.AudioChunk.chunk_number).all()
+    except ValueError:
+        return []

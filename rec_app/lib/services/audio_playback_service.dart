@@ -15,8 +15,6 @@ class AudioPlaybackService extends ChangeNotifier {
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   String? _currentSessionId;
-  
-  // Error handling
   String? _errorMessage;
   
   // Streams
@@ -80,10 +78,6 @@ class AudioPlaybackService extends ChangeNotifier {
       
       // Load audio source
       await _audioPlayer.setUrl(streamUrl);
-      
-      // For now, we're using the stream URL directly
-      // In production, you might want to implement chunk merging
-      // Note: This will work with mock URLs for testing
       
       _isLoading = false;
       notifyListeners();
@@ -152,6 +146,13 @@ class AudioPlaybackService extends ChangeNotifier {
     }
   }
   
+  // Get formatted time string
+  String formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+  
   // Set playback speed
   Future<void> setSpeed(double speed) async {
     try {
@@ -162,13 +163,6 @@ class AudioPlaybackService extends ChangeNotifier {
       _errorMessage = 'Failed to set playback speed: $e';
       notifyListeners();
     }
-  }
-  
-  // Get formatted time string
-  String formatDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
   
   // Clear error message
