@@ -115,11 +115,17 @@ async def keepalive_ping(websocket: WebSocket, connection_id: str):
     """Send periodic ping to keep connection alive"""
     try:
         while True:
-            await asyncio.sleep(15)  # Send ping every 15 seconds (more frequent)
+            await asyncio.sleep(10)  # Send ping every 10 seconds (more frequent)
             try:
                 # Check if websocket is still connected
                 if websocket.client_state.name == "CONNECTED":
-                    await websocket.send_text(json.dumps({"type": "ping"}))
+                    # Send ping with timestamp
+                    ping_data = {
+                        "type": "ping",
+                        "timestamp": datetime.now().isoformat(),
+                        "connection_id": connection_id
+                    }
+                    await websocket.send_text(json.dumps(ping_data))
                     logger.debug(f"Sent keepalive ping to {connection_id}")
                 else:
                     logger.info(f"WebSocket {connection_id} is no longer connected, stopping keepalive")
@@ -247,17 +253,42 @@ async def handle_stop_streaming(websocket: WebSocket, connection_id: str, messag
         session_id = message.get("session_id")
         
         # Update session status in database
-        # This would typically update the session status to completed
+        db = None
+        try:
+            db = next(get_db())
+            session = db.query(DBSession).filter(DBSession.id == session_id).first()
+            
+            if session:
+                # Update session status to completed
+                session.status = "completed"
+                session.end_time = datetime.now()
+                session.last_activity = datetime.now()
+                db.commit()
+                logger.info(f"Session {session_id} marked as completed")
+            else:
+                logger.warning(f"Session {session_id} not found for stop streaming")
+                
+        except Exception as db_error:
+            logger.error(f"Error updating session status: {db_error}")
+        finally:
+            if db:
+                db.close()
         
+        # Send confirmation to client
         await websocket.send_text(json.dumps({
             "type": "streaming_stopped",
-            "session_id": session_id
+            "session_id": session_id,
+            "status": "completed"
         }))
         
         logger.info(f"Streaming stopped for session {session_id}")
         
     except Exception as e:
         logger.error(f"Error handling stop streaming: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Failed to stop streaming: {str(e)}"
+        }))
 
 async def handle_audio_data(websocket: WebSocket, connection_id: str, audio_data: bytes):
     """Handle incoming audio data"""
@@ -297,11 +328,14 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             logger.error(f"Session {session_id} not found - session should have been created during session start")
             return
             
+        # Get next chunk number atomically
+        next_chunk_number = session.last_chunk_number + 1
+        
         # Create audio chunk record
         chunk = AudioChunk(
             id=str(uuid.uuid4()),
             session_id=session_id,
-            chunk_number=session.last_chunk_number + 1,
+            chunk_number=next_chunk_number,
             gcs_path="",  # Will be set after upload
             mime_type="audio/mp4",
             file_size=len(audio_data)
@@ -327,8 +361,8 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
                 db.add(chunk)
                 db.commit()
                 
-                # Update session
-                session.last_chunk_number = chunk.chunk_number
+                # Update session with atomic chunk number increment
+                session.last_chunk_number = next_chunk_number
                 session.last_activity = datetime.now()
                 db.commit()
                 
