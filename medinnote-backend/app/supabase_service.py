@@ -155,23 +155,10 @@ class SupabaseService:
                             "upsert": True
                         }
                     )
-                
-                # Handle different response types
-                if result is True:
-                    # Boolean True means success
-                    public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                    logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                    return {
-                        "success": True,
-                        "path": file_path,
-                        "public_url": public_url
-                    }
-                elif isinstance(result, dict):
-                    if result.get('error'):
-                        error_msg = result.get('error', 'Upload failed')
-                        logger.error(f"Upload failed: {error_msg}")
-                        return {"success": False, "error": error_msg}
-                    else:
+                    
+                    # Handle different response types
+                    if result is True:
+                        # Boolean True means success
                         public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
                         logger.info(f"Audio chunk uploaded successfully: {file_path}")
                         return {
@@ -179,28 +166,45 @@ class SupabaseService:
                             "path": file_path,
                             "public_url": public_url
                         }
-                else:
-                    # Try to get public URL anyway
-                    try:
-                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                        logger.info(f"Audio chunk uploaded (unknown result type): {file_path}")
-                        return {
-                            "success": True,
-                            "path": file_path,
-                            "public_url": public_url
-                        }
-                         except Exception as url_error:
-                             logger.error(f"Could not get public URL: {url_error}")
-                             return {"success": False, "error": f"Upload result unclear: {type(result)}"}
-                             
-                 finally:
-                     # Clean up temporary file
-                     if os.path.exists(temp_file_path):
-                         os.unlink(temp_file_path)
-                         
-             except Exception as upload_error:
-                 logger.error(f"Temp file upload failed: {upload_error}")
-                 return {"success": False, "error": f"Upload failed: {upload_error}"}
+                    elif isinstance(result, dict):
+                        if result.get('error'):
+                            error_msg = result.get('error', 'Upload failed')
+                            logger.error(f"Upload failed: {error_msg}")
+                            return {"success": False, "error": error_msg}
+                        else:
+                            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                            logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                            return {
+                                "success": True,
+                                "path": file_path,
+                                "public_url": public_url
+                            }
+                    else:
+                        # Try to get public URL anyway
+                        try:
+                            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                            logger.info(f"Audio chunk uploaded (unknown result type): {file_path}")
+                            return {
+                                "success": True,
+                                "path": file_path,
+                                "public_url": public_url
+                            }
+                        except Exception as url_error:
+                            logger.error(f"Could not get public URL: {url_error}")
+                            return {"success": False, "error": f"Upload result unclear: {type(result)}"}
+                            
+                except Exception as upload_error:
+                    logger.error(f"Upload failed: {upload_error}")
+                    return {"success": False, "error": f"Upload failed: {upload_error}"}
+                    
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                        
+            except Exception as upload_error:
+                logger.error(f"Temp file upload failed: {upload_error}")
+                return {"success": False, "error": f"Upload failed: {upload_error}"}
                 
         except Exception as e:
             logger.error(f"Error uploading audio chunk: {e}")
