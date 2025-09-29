@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, Date, ForeignKey
+from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, Date, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -101,6 +101,7 @@ class AudioChunk(Base):
     upload_attempts = Column(Integer, default=0)
     is_verified = Column(Boolean, default=False)
     sequence_verified = Column(Boolean, default=False)
+    audio_data = Column(LargeBinary, nullable=True)  # Store binary audio data directly
     
     # Relationships
     session = relationship("Session", back_populates="audio_chunks")

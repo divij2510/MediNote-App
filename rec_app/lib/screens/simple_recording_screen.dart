@@ -39,50 +39,18 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
   // UI state
   double _currentAmplitude = 0.0;
   final List<double> _amplitudeHistory = List.generate(50, (index) => 0.0);
-  late AnimationController _waveformController;
-  late AnimationController _pulseController;
-  late Animation<double> _waveformAnimation;
-  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _apiService = Provider.of<ApiService>(context, listen: false);
     _nativeAudioService = Provider.of<NativeAudioService>(context, listen: false);
-    
-    // Initialize animations
-    _waveformController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    );
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-    
-    _waveformAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _waveformController,
-      curve: Curves.easeInOut,
-    ));
-    
-    _pulseAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.2,
-    ).animate(CurvedAnimation(
-      parent: _pulseController,
-      curve: Curves.elasticOut,
-    ));
   }
 
   @override
   void dispose() {
     _durationTimer?.cancel();
     _channel?.sink.close();
-    _waveformController.dispose();
-    _pulseController.dispose();
     super.dispose();
   }
 
@@ -112,8 +80,6 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
       
       _startDurationTimer();
       _startAudioStreaming();
-      _waveformController.repeat(reverse: true);
-      _pulseController.repeat(reverse: true);
       
       HapticFeedback.mediumImpact();
     } catch (e) {
@@ -387,7 +353,6 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
                   painter: AmplitudeVisualizerPainter(
                     amplitudeHistory: _amplitudeHistory,
                     isRecording: _isRecording,
-                    animation: _waveformAnimation,
                   ),
                 ),
               ),
@@ -406,25 +371,17 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
                   ),
                   
                   // Play/Pause button
-                  AnimatedBuilder(
-                    animation: _pulseAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _pulseAnimation.value,
-                        child: _buildControlButton(
-                          icon: _isRecording 
-                              ? (_isPaused ? Icons.play_arrow : Icons.pause)
-                              : Icons.mic,
-                          onPressed: _isRecording 
-                              ? (_isPaused ? _resumeRecording : _pauseRecording)
-                              : _startRecording,
-                          color: _isRecording 
-                              ? (_isPaused ? Colors.green : Colors.orange)
-                              : Colors.blue,
-                          size: 80,
-                        ),
-                      );
-                    },
+                  _buildControlButton(
+                    icon: _isRecording 
+                        ? (_isPaused ? Icons.play_arrow : Icons.pause)
+                        : Icons.mic,
+                    onPressed: _isRecording 
+                        ? (_isPaused ? _resumeRecording : _pauseRecording)
+                        : _startRecording,
+                    color: _isRecording 
+                        ? (_isPaused ? Colors.green : Colors.orange)
+                        : Colors.blue,
+                    size: 80,
                   ),
                 ],
               ),
@@ -476,12 +433,10 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
 class AmplitudeVisualizerPainter extends CustomPainter {
   final List<double> amplitudeHistory;
   final bool isRecording;
-  final Animation<double> animation;
   
   AmplitudeVisualizerPainter({
     required this.amplitudeHistory,
     required this.isRecording,
-    required this.animation,
   });
   
   @override
@@ -497,8 +452,7 @@ class AmplitudeVisualizerPainter extends CustomPainter {
       final x = i * barWidth;
       
       if (isRecording) {
-        final opacity = 0.3 + (0.7 * animation.value);
-        paint.color = Colors.red.withValues(alpha: opacity);
+        paint.color = Colors.red;
       } else {
         paint.color = Colors.grey[600]!;
       }
@@ -522,7 +476,6 @@ class AmplitudeVisualizerPainter extends CustomPainter {
   @override
   bool shouldRepaint(AmplitudeVisualizerPainter oldDelegate) {
     return oldDelegate.amplitudeHistory != amplitudeHistory ||
-        oldDelegate.isRecording != isRecording ||
-        oldDelegate.animation.value != animation.value;
+        oldDelegate.isRecording != isRecording;
   }
 }

@@ -140,13 +140,18 @@ class SupabaseService:
                 import os
                 import io
                 
+                logger.info(f"Starting upload for {file_path}, data size: {len(audio_data)} bytes")
+                
                 # Create temporary file from BytesIO data
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
                     temp_file.write(audio_data)
                     temp_file_path = temp_file.name
                 
+                logger.info(f"Created temp file: {temp_file_path}")
+                
                 try:
                     # Upload from file path
+                    logger.info(f"Attempting Supabase upload to bucket: {bucket_name}, path: {file_path}")
                     result = self.supabase.storage.from_(bucket_name).upload(
                         path=file_path,
                         file=temp_file_path,
@@ -155,6 +160,8 @@ class SupabaseService:
                             "upsert": True
                         }
                     )
+                    
+                    logger.info(f"Supabase upload result type: {type(result)}, value: {result}")
                     
                     # Handle different response types
                     if result is True:
@@ -194,8 +201,46 @@ class SupabaseService:
                             return {"success": False, "error": f"Upload result unclear: {type(result)}"}
                             
                 except Exception as upload_error:
-                    logger.error(f"Upload failed: {upload_error}")
-                    return {"success": False, "error": f"Upload failed: {upload_error}"}
+                    logger.error(f"Supabase upload failed: {upload_error}")
+                    logger.info("Falling back to PostgreSQL storage...")
+                    
+                    # Fallback: Store audio data directly in PostgreSQL
+                    try:
+                        from ..database import get_db
+                        from ..models import AudioChunk
+                        import base64
+                        
+                        # Get database session
+                        db = next(get_db())
+                        
+                        # Create audio chunk record with binary data
+                        audio_chunk = AudioChunk(
+                            id=str(uuid.uuid4()),
+                            session_id=file_path.split('/')[1],  # Extract session ID from path
+                            chunk_number=int(file_path.split('_')[1].split('.')[0]),  # Extract chunk number
+                            gcs_path=file_path,
+                            public_url=f"postgres://audio/{file_path}",  # Mock URL for PostgreSQL storage
+                            mime_type=mime_type,
+                            file_size=len(audio_data),
+                            audio_data=audio_data,  # Store binary data directly
+                            upload_status="uploaded"
+                        )
+                        
+                        db.add(audio_chunk)
+                        db.commit()
+                        db.close()
+                        
+                        logger.info(f"Audio chunk stored in PostgreSQL: {file_path}")
+                        return {
+                            "success": True,
+                            "path": file_path,
+                            "public_url": f"postgres://audio/{file_path}",
+                            "storage_type": "postgresql"
+                        }
+                        
+                    except Exception as postgres_error:
+                        logger.error(f"PostgreSQL fallback failed: {postgres_error}")
+                        return {"success": False, "error": f"Both Supabase and PostgreSQL failed: {upload_error}, {postgres_error}"}
                     
                 finally:
                     # Clean up temporary file
@@ -203,7 +248,7 @@ class SupabaseService:
                         os.unlink(temp_file_path)
                         
             except Exception as upload_error:
-                logger.error(f"Temp file upload failed: {upload_error}")
+                logger.error(f"Temp file creation failed: {upload_error}")
                 return {"success": False, "error": f"Upload failed: {upload_error}"}
                 
         except Exception as e:

@@ -433,10 +433,61 @@ async def stream_audio(
         # Return the first chunk's URL
         first_chunk = audio_chunks[0]
         if first_chunk.public_url:
-            return {"audio_url": first_chunk.public_url}
+            # Check if it's stored in PostgreSQL
+            if first_chunk.public_url.startswith("postgres://"):
+                # Return a special endpoint for PostgreSQL-stored audio
+                return {"audio_url": f"/v1/session/{session_id}/audio/data"}
+            else:
+                # Return Supabase URL
+                return {"audio_url": first_chunk.public_url}
         else:
             raise HTTPException(status_code=404, detail="Audio file not available")
         
     except Exception as e:
         logger.error(f"Error streaming audio: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/v1/session/{session_id}/audio/data")
+async def get_audio_data(session_id: str, current_user: dict = Depends(get_current_user)):
+    """Get audio data from PostgreSQL storage"""
+    try:
+        db = next(get_db())
+        
+        # Get session
+        session = db.query(models.Session).filter(models.Session.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Check if session belongs to user
+        if str(session.user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get all audio chunks for this session
+        audio_chunks = crud.get_audio_chunks_by_session(db, session_id=session_id)
+        
+        if not audio_chunks:
+            raise HTTPException(status_code=404, detail="No audio chunks found for this session")
+        
+        # Combine all audio chunks into a single response
+        combined_audio_data = b""
+        for chunk in sorted(audio_chunks, key=lambda x: x.chunk_number):
+            if chunk.audio_data:
+                combined_audio_data += chunk.audio_data
+        
+        if not combined_audio_data:
+            raise HTTPException(status_code=404, detail="No audio data available")
+        
+        # Return the combined audio data
+        from fastapi.responses import Response
+        return Response(
+            content=combined_audio_data,
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": f"attachment; filename=session_{session_id}.mp3"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting audio data: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if db:
+            db.close()
