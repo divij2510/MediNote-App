@@ -120,6 +120,60 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error getting session audio chunks: {e}")
             return []
+    
+    async def upload_audio_chunk(self, file_path: str, audio_data: bytes, mime_type: str = "audio/mp4") -> dict:
+        """Upload audio chunk to Supabase storage"""
+        try:
+            if not self.supabase:
+                # Mock upload for development
+                logger.info(f"Mock upload: {file_path} ({len(audio_data)} bytes)")
+                return {
+                    "success": True,
+                    "path": file_path,
+                    "public_url": f"https://mock-storage.local/{file_path}",
+                    "mock": True
+                }
+            
+            bucket_name = "recording_app"
+            
+            # Upload to Supabase storage
+            # Convert bytes to file-like object
+            import io
+            file_obj = io.BytesIO(audio_data)
+            
+            result = self.supabase.storage.from_(bucket_name).upload(
+                path=file_path,
+                file=file_obj,
+                file_options={
+                    "content-type": mime_type,
+                    "upsert": True
+                }
+            )
+            
+            if result:
+                # Get public URL
+                public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                
+                logger.info(f"Audio chunk uploaded successfully: {file_path}")
+                return {
+                    "success": True,
+                    "path": file_path,
+                    "public_url": public_url,
+                    "mock": False
+                }
+            else:
+                logger.error(f"Failed to upload audio chunk: {file_path}")
+                return {
+                    "success": False,
+                    "error": "Upload failed"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error uploading audio chunk: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 # Global instance
 supabase_service = SupabaseService()

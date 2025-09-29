@@ -267,6 +267,7 @@ async def handle_audio_data(websocket: WebSocket, connection_id: str, audio_data
 
 async def process_audio_chunk(session_id: str, audio_data: bytes):
     """Process incoming audio chunk"""
+    db = None
     try:
         # Get database session
         db = next(get_db())
@@ -315,7 +316,8 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}")
     finally:
-        db.close()
+        if db:
+            db.close()
 
 @router.get("/ws/health")
 async def websocket_health():

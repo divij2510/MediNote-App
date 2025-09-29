@@ -81,6 +81,9 @@ class AudioPlaybackService extends ChangeNotifier {
       // Load audio source
       await _audioPlayer.setUrl(streamUrl);
       
+      // For now, we're using the stream URL directly
+      // In production, you might want to implement chunk merging
+      
       _isLoading = false;
       notifyListeners();
       

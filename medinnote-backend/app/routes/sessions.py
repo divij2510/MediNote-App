@@ -414,7 +414,7 @@ async def stream_audio(
     db: Session = Depends(get_db),
     current_user = Depends(get_hardcoded_user)
 ):
-    """Stream audio for a session (placeholder implementation)"""
+    """Stream audio for a session"""
     try:
         # Get session from database
         session = crud.get_session_by_id(db, session_id=session_id)
@@ -425,9 +425,19 @@ async def stream_audio(
         if str(session.user_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # For now, return a simple response
-        # In production, this would stream the actual audio file
-        return {"message": "Audio streaming endpoint - implementation pending"}
+        # Get audio chunks for this session
+        audio_chunks = crud.get_audio_chunks_by_session(db, session_id=session_id)
+        
+        if not audio_chunks:
+            raise HTTPException(status_code=404, detail="No audio chunks found for this session")
+        
+        # For now, return the first chunk's URL as a simple solution
+        # In production, you'd want to merge chunks or create a playlist
+        first_chunk = audio_chunks[0]
+        if first_chunk.public_url:
+            return {"audio_url": first_chunk.public_url}
+        else:
+            raise HTTPException(status_code=404, detail="Audio file not available")
         
     except Exception as e:
         logger.error(f"Error streaming audio: {e}")
