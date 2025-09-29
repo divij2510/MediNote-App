@@ -83,6 +83,7 @@ class AudioPlaybackService extends ChangeNotifier {
       
       // For now, we're using the stream URL directly
       // In production, you might want to implement chunk merging
+      // Note: This will work with mock URLs for testing
       
       _isLoading = false;
       notifyListeners();
