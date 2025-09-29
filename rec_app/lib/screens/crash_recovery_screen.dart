@@ -6,7 +6,7 @@ import '../models/session.dart';
 import '../services/api_service.dart';
 import '../services/native_audio_service.dart';
 import '../services/storage_service.dart';
-import 'realtime_recording_screen.dart';
+import 'simple_recording_screen.dart';
 
 class CrashRecoveryScreen extends StatefulWidget {
   const CrashRecoveryScreen({Key? key}) : super(key: key);
@@ -397,7 +397,7 @@ class _CrashRecoveryScreenState extends State<CrashRecoveryScreen>
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (context) => RealtimeRecordingScreen(
+              builder: (context) => SimpleRecordingScreen(
                 session: _recoverySession!,
               ),
             ),

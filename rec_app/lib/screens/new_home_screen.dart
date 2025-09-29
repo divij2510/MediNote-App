@@ -3,9 +3,14 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../models/patient.dart';
+import '../models/session.dart';
+import '../services/api_service.dart';
 import 'patient_list_screen.dart';
 import 'recording_screen.dart';
 import 'test_scenarios_screen.dart';
+import 'past_recordings_screen.dart';
+import 'audio_playback_screen.dart';
+import '../services/audio_playback_service.dart';
 
 class NewHomeScreen extends StatefulWidget {
   const NewHomeScreen({super.key});
@@ -233,15 +238,44 @@ class _NewHomeScreenState extends State<NewHomeScreen>
   }
 
   Widget _buildSessionList() {
-    // Mock data - replace with actual data
-    final sessions = [
-      {'patient': 'John Doe', 'time': '2 hours ago', 'duration': '15:32'},
-      {'patient': 'Jane Smith', 'time': 'Yesterday', 'duration': '8:45'},
-      {'patient': 'Mike Johnson', 'time': '2 days ago', 'duration': '22:18'},
-    ];
-
-    return Column(
-      children: sessions.map((session) => _buildSessionCard(session)).toList(),
+    return Consumer<ApiService>(
+      builder: (context, apiService, child) {
+        return FutureBuilder<List<RecordingSession>>(
+          future: apiService.getSessions(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  'Error loading sessions: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              );
+            }
+            
+            final sessions = snapshot.data ?? [];
+            
+            if (sessions.isEmpty) {
+              return const Center(
+                child: Text(
+                  'No recordings yet',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              );
+            }
+            
+            // Show only recent 3 sessions
+            final recentSessions = sessions.take(3).toList();
+            
+            return Column(
+              children: recentSessions.map((session) => _buildSessionCardFromData(session)).toList(),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -280,6 +314,45 @@ class _NewHomeScreenState extends State<NewHomeScreen>
           color: AppTheme.primary,
         ),
         onTap: () => _playSession(session),
+      ),
+    );
+  }
+
+  Widget _buildSessionCardFromData(RecordingSession session) {
+    final duration = session.endTime != null 
+        ? session.endTime!.difference(session.startTime)
+        : Duration.zero;
+    
+    final durationText = _formatDuration(duration);
+    final timeAgo = _getTimeAgo(session.startTime);
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: _getStatusColor(session.status),
+          child: Icon(
+            _getStatusIcon(session.status),
+            color: Colors.white,
+          ),
+        ),
+        title: Text(session.patientName),
+        subtitle: Text('$timeAgo • $durationText'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.play_arrow),
+              onPressed: () => _playSessionFromData(session),
+              tooltip: 'Play Recording',
+            ),
+            IconButton(
+              icon: const Icon(Icons.share),
+              onPressed: () => _shareSession(session),
+              tooltip: 'Share Recording',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -486,7 +559,12 @@ class _NewHomeScreenState extends State<NewHomeScreen>
   }
 
   void _showAllSessions() {
-    _showRecentRecordings();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PastRecordingsScreen(),
+      ),
+    );
   }
 
   void _playSession(Map<String, String> session) {
@@ -496,6 +574,83 @@ class _NewHomeScreenState extends State<NewHomeScreen>
         content: Text('Playing session for ${session['patient']}'),
       ),
     );
+  }
+
+  void _playSessionFromData(RecordingSession session) {
+    // Initialize audio playback service
+    final audioPlaybackService = Provider.of<AudioPlaybackService>(context, listen: false);
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChangeNotifierProvider.value(
+          value: audioPlaybackService,
+          child: AudioPlaybackScreen(session: session),
+        ),
+      ),
+    );
+  }
+
+  void _shareSession(RecordingSession session) {
+    // TODO: Implement session sharing
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Sharing ${session.patientName} recording')),
+    );
+  }
+
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final seconds = duration.inSeconds % 60;
+    
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    } else if (minutes > 0) {
+      return '${minutes}m ${seconds}s';
+    } else {
+      return '${seconds}s';
+    }
+  }
+
+  String _getTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hour${difference.inHours == 1 ? '' : 's'} ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} minute${difference.inMinutes == 1 ? '' : 's'} ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+        return Colors.green;
+      case 'recording':
+        return Colors.red;
+      case 'paused':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+        return Icons.check_circle;
+      case 'recording':
+        return Icons.mic;
+      case 'paused':
+        return Icons.pause_circle;
+      default:
+        return Icons.radio_button_unchecked;
+    }
   }
 
   void _showTestScenarios() {

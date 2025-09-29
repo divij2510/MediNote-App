@@ -52,7 +52,7 @@ class _RecordingControlsState extends State<RecordingControls> {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(60),
-                  onTap: _isStarting ? null : () => _handleMainButtonTap(audioService, apiService),
+                  onTap: _isStarting ? null : () => _handleMainButtonTap(audioService, apiService, streamingService),
                   child: Center(
                     child: _isStarting
                         ? const CircularProgressIndicator(

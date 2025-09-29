@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -482,7 +483,7 @@ class InterruptionHandler extends ChangeNotifier {
           
           if (success) {
             // Remove from queue
-            await _storageService.removeQueuedChunk(chunk);
+            await _storageService.removeQueuedChunk(chunk.sessionId, chunk.chunkNumber);
             debugPrint('Queued chunk synced successfully');
           }
         } catch (e) {
@@ -654,8 +655,8 @@ class InterruptionHandler extends ChangeNotifier {
       'memory_pressure_interruption',
       'Memory Pressure',
       channelDescription: 'Memory pressure interruption notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -673,8 +674,8 @@ class InterruptionHandler extends ChangeNotifier {
       'bluetooth_disconnect_interruption',
       'Bluetooth Disconnect',
       channelDescription: 'Bluetooth disconnect interruption notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -692,8 +693,8 @@ class InterruptionHandler extends ChangeNotifier {
       'headset_disconnect_interruption',
       'Headset Disconnect',
       channelDescription: 'Headset disconnect interruption notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -754,8 +755,8 @@ class InterruptionHandler extends ChangeNotifier {
       'app_switch_resolved',
       'App Switch Resolved',
       channelDescription: 'App switch resolved notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -811,8 +812,8 @@ class InterruptionHandler extends ChangeNotifier {
       'memory_pressure_resolved',
       'Memory Pressure Resolved',
       channelDescription: 'Memory pressure resolved notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -830,8 +831,8 @@ class InterruptionHandler extends ChangeNotifier {
       'bluetooth_reconnected',
       'Bluetooth Reconnected',
       channelDescription: 'Bluetooth reconnected notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -849,8 +850,8 @@ class InterruptionHandler extends ChangeNotifier {
       'headset_reconnected',
       'Headset Reconnected',
       channelDescription: 'Headset reconnected notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);

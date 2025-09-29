@@ -15,6 +15,8 @@ dependencies:
   record: ^6.1.1
   just_audio: ^0.9.36
   ffmpeg_kit_flutter_new_audio: ^1.1.0
+  # mic_stream: ^0.7.2  # Commented out due to compatibility issues
+  # Using alternative approach with record package for real-time streaming
   
   # Real-time audio streaming
   web_socket_channel: ^2.4.0

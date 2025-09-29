@@ -73,7 +73,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recording Notifications',
       description: 'Notifications for active recording sessions',
       importance: Importance.high,
-      priority: Priority.high,
       enableVibration: true,
       enableLights: true,
       showBadge: true,
@@ -85,7 +84,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Interruption Notifications',
       description: 'Notifications for recording interruptions',
       importance: Importance.high,
-      priority: Priority.high,
       enableVibration: true,
       enableLights: true,
       showBadge: true,
@@ -97,7 +95,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recovery Notifications',
       description: 'Notifications for session recovery',
       importance: Importance.high,
-      priority: Priority.high,
       enableVibration: true,
       enableLights: true,
       showBadge: true,
@@ -108,8 +105,7 @@ class SystemIntegrationService extends ChangeNotifier {
       _systemChannelId,
       'System Notifications',
       description: 'System-level notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
       enableVibration: false,
       enableLights: false,
       showBadge: false,
@@ -210,7 +206,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recording Active',
       channelDescription: 'Active recording session notifications',
       importance: Importance.high,
-      priority: Priority.high,
       ongoing: true,
       showWhen: false,
       autoCancel: false,
@@ -236,7 +231,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recording Paused',
       channelDescription: 'Paused recording session notifications',
       importance: Importance.high,
-      priority: Priority.high,
       ongoing: true,
       showWhen: false,
       autoCancel: false,
@@ -273,7 +267,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recording Complete',
       channelDescription: 'Completed recording session notifications',
       importance: Importance.high,
-      priority: Priority.high,
       actions: [
         AndroidNotificationAction('share', 'Share'),
         AndroidNotificationAction('view', 'View'),
@@ -297,7 +290,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Phone Call Interruption',
       channelDescription: 'Phone call interruption notifications',
       importance: Importance.high,
-      priority: Priority.high,
       ongoing: true,
       showWhen: false,
       autoCancel: false,
@@ -322,7 +314,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Network Loss',
       channelDescription: 'Network loss interruption notifications',
       importance: Importance.high,
-      priority: Priority.high,
       ongoing: true,
       showWhen: false,
       autoCancel: false,
@@ -344,7 +335,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'App Backgrounded',
       channelDescription: 'App backgrounded notifications',
       importance: Importance.high,
-      priority: Priority.high,
       ongoing: true,
       showWhen: false,
       autoCancel: false,
@@ -367,7 +357,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Session Recovery',
       channelDescription: 'Session recovery notifications',
       importance: Importance.high,
-      priority: Priority.high,
       actions: [
         AndroidNotificationAction('recover', 'Resume Session'),
         AndroidNotificationAction('dismiss', 'Dismiss'),
@@ -390,7 +379,6 @@ class SystemIntegrationService extends ChangeNotifier {
       'Recovery Successful',
       channelDescription: 'Recovery successful notifications',
       importance: Importance.high,
-      priority: Priority.high,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -409,8 +397,7 @@ class SystemIntegrationService extends ChangeNotifier {
       _systemChannelId,
       'System Notification',
       channelDescription: 'System notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);

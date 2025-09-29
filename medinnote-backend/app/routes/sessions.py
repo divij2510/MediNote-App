@@ -8,6 +8,7 @@ from ..config import settings
 from ..supabase_service import supabase_service
 from ..auth import get_hardcoded_user
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -379,3 +380,55 @@ async def patch_session_status(
     
     crud.update_session_status(db, session_id, **update_data)
     return {"success": True, "status": status}
+
+@router.get("/v1/session/{session_id}/audio/stream")
+async def get_audio_stream_url(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_hardcoded_user)
+):
+    """Get audio stream URL for a session"""
+    try:
+        # Get session from database
+        session = crud.get_session_by_id(db, session_id=session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Check if session belongs to user
+        if str(session.user_id) != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # For now, return a placeholder URL
+        # In production, this would generate a presigned URL or streaming URL
+        stream_url = f"https://medinote-app-backend-api.onrender.com/v1/session/{session_id}/audio/play"
+        
+        return {"stream_url": stream_url}
+        
+    except Exception as e:
+        logger.error(f"Error getting audio stream URL: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/v1/session/{session_id}/audio/play")
+async def stream_audio(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_hardcoded_user)
+):
+    """Stream audio for a session (placeholder implementation)"""
+    try:
+        # Get session from database
+        session = crud.get_session_by_id(db, session_id=session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Check if session belongs to user
+        if str(session.user_id) != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # For now, return a simple response
+        # In production, this would stream the actual audio file
+        return {"message": "Audio streaming endpoint - implementation pending"}
+        
+    except Exception as e:
+        logger.error(f"Error streaming audio: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
+// import 'package:mic_stream/mic_stream.dart';  // Commented out due to compatibility issues
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -26,6 +28,7 @@ class NativeAudioService extends ChangeNotifier {
   final AudioRecorder _audioRecorder = AudioRecorder();
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   StreamSubscription<Uint8List>? _audioStreamSubscription;
+  // StreamSubscription<List<int>>? _micStreamSubscription;  // Not used with record package approach
   
   // Audio state
   bool _isRecording = false;
@@ -74,6 +77,11 @@ class NativeAudioService extends ChangeNotifier {
   bool get isBluetoothConnected => _isBluetoothConnected;
   bool get isWiredHeadsetConnected => _isWiredHeadsetConnected;
   String? get recoverySessionId => _recoverySessionId;
+  
+  // Public method to get current amplitude
+  Future<Amplitude> getCurrentAmplitude() async {
+    return await _audioRecorder.getAmplitude();
+  }
   
   // Stream getters
   Stream<Uint8List>? get audioStream => _audioStreamController?.stream;
@@ -245,27 +253,64 @@ class NativeAudioService extends ChangeNotifier {
   }
   
   void _startAudioStreaming() {
-    // Start a timer to read audio data from the recording file
-    _streamTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+    try {
+      // Use record package's built-in streaming capabilities
+      // Start a timer to read audio data from the recording file in real-time
+      _startTimerBasedStreaming();
+    } catch (e) {
+      debugPrint('Error starting audio streaming: $e');
+    }
+  }
+  
+  void _startTimerBasedStreaming() {
+    // Real-time audio streaming using record package
+    _streamTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
       if (!_isRecording || _isPaused) {
         timer.cancel();
         return;
       }
       
       try {
-        // Read audio data from the recording file
+        // Get current amplitude for visualization
+        final amplitude = await _audioRecorder.getAmplitude();
+        _currentAmplitude = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
+        
+        // Apply gain control to amplitude
+        _currentAmplitude = (_currentAmplitude * _gainLevel).clamp(0.0, 100.0);
+        
+        _amplitudeController?.add(_currentAmplitude);
+        notifyListeners();
+        
+        // Read audio data from the recording file for streaming
         if (_currentRecordingFile != null && _currentRecordingFile!.existsSync()) {
           final fileBytes = await _currentRecordingFile!.readAsBytes();
           if (fileBytes.isNotEmpty) {
+            // Apply gain control to audio data
+            final adjustedData = _applyGainControl(fileBytes);
+            
             // Send audio data to stream
-            _audioStreamController?.add(fileBytes);
+            _audioStreamController?.add(adjustedData);
           }
         }
       } catch (e) {
-        debugPrint('Error reading audio data: $e');
+        debugPrint('Error in audio streaming: $e');
       }
     });
   }
+  
+  Uint8List _applyGainControl(Uint8List audioData) {
+    if (_gainLevel == 1.0) return audioData;
+    
+    // Apply gain by scaling the audio samples
+    final samples = Int16List.fromList(audioData);
+    for (int i = 0; i < samples.length; i++) {
+      samples[i] = (samples[i] * _gainLevel).clamp(-32768, 32767).round();
+    }
+    
+    return Uint8List.fromList(samples.buffer.asUint8List());
+  }
+  
+  // Removed _calculateAmplitudeFromSamples method as we now use record package's getAmplitude()
   
   void _startChunkProcessing() {
     // Process audio chunks every 5 seconds
@@ -661,8 +706,8 @@ class NativeAudioService extends ChangeNotifier {
       'audio_device_change',
       'Audio Device',
       channelDescription: 'Audio device change notifications',
-      importance: Importance.medium,
-      priority: Priority.medium,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
     );
     
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -679,6 +724,7 @@ class NativeAudioService extends ChangeNotifier {
   void dispose() {
     _amplitudeSubscription?.cancel();
     _audioStreamSubscription?.cancel();
+    // _micStreamSubscription?.cancel();  // Not used with record package approach
     _durationTimer?.cancel();
     _streamTimer?.cancel();
     _chunkTimer?.cancel();

@@ -4,9 +4,8 @@ import 'package:provider/provider.dart';
 import '../models/patient.dart';
 import '../models/session.dart';
 import '../services/api_service.dart';
-import 'new_recording_screen.dart';
-import 'realtime_recording_screen.dart';
-import 'playback_screen.dart';
+import 'simple_recording_screen.dart';
+import 'audio_playback_screen.dart';
 
 class PatientListScreen extends StatefulWidget {
   const PatientListScreen({super.key});
@@ -226,12 +225,12 @@ class _PatientListScreenState extends State<PatientListScreen> {
       startTime: DateTime.now(),
     );
     
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => RealtimeRecordingScreen(session: session),
-      ),
-    );
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SimpleRecordingScreen(session: session),
+            ),
+          );
   }
 
   Future<void> _showAddPatientDialog() async {
@@ -378,7 +377,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (context) => PlaybackScreen(
+                                              builder: (context) => AudioPlaybackScreen(
                                                 session: session,
                                               ),
                                             ),

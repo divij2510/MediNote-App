@@ -16,6 +16,7 @@ import 'services/system_integration_service.dart';
 import 'services/test_scenarios_service.dart';
 import 'services/storage_service.dart';
 import 'services/permission_service.dart';
+import 'services/audio_playback_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,7 @@ class MediNoteApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TestScenariosService()),
         ChangeNotifierProvider(create: (_) => StorageService()),
         ChangeNotifierProvider(create: (_) => PermissionService()),
+        ChangeNotifierProvider(create: (context) => AudioPlaybackService(Provider.of<ApiService>(context, listen: false))),
       ],
       child: MaterialApp(
         title: 'MediNote',

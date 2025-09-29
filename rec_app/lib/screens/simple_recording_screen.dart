@@ -1,285 +1,324 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:convert';
 
 import '../models/session.dart';
-import '../services/realtime_audio_service.dart';
 import '../services/api_service.dart';
-import '../services/storage_service.dart';
+import '../services/native_audio_service.dart';
 
 class SimpleRecordingScreen extends StatefulWidget {
   final RecordingSession session;
 
   const SimpleRecordingScreen({
-    Key? key,
+    super.key,
     required this.session,
-  }) : super(key: key);
+  });
 
   @override
   State<SimpleRecordingScreen> createState() => _SimpleRecordingScreenState();
 }
 
-class _SimpleRecordingScreenState extends State<SimpleRecordingScreen> {
-  late RealtimeAudioService _audioService;
+class _SimpleRecordingScreenState extends State<SimpleRecordingScreen>
+    with TickerProviderStateMixin {
   late ApiService _apiService;
-  late StorageService _storageService;
+  late NativeAudioService _nativeAudioService;
   
-  bool _isInitialized = false;
+  // Recording state
+  bool _isRecording = false;
+  bool _isPaused = false;
+  Duration _recordingDuration = Duration.zero;
+  Timer? _durationTimer;
+  String? _actualSessionId; // Store the actual session ID from backend
+  
+  // Audio visualization
+  late AnimationController _waveformController;
+  late AnimationController _pulseController;
+  final List<double> _amplitudeHistory = List.generate(50, (index) => 0.0);
   double _currentAmplitude = 0.0;
+  
+  // WebSocket connection
+  WebSocketChannel? _channel;
+  Timer? _audioStreamTimer;
+  int _chunkNumber = 0;
   
   @override
   void initState() {
     super.initState();
     _initializeServices();
-    _startRecording();
+    _initializeAnimations();
   }
   
   void _initializeServices() {
     _apiService = Provider.of<ApiService>(context, listen: false);
-    _storageService = Provider.of<StorageService>(context, listen: false);
-    _audioService = Provider.of<RealtimeAudioService>(context, listen: false);
+    _nativeAudioService = Provider.of<NativeAudioService>(context, listen: false);
+  }
+  
+  void _initializeAnimations() {
+    _waveformController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    
+    _waveformController.repeat();
+    _pulseController.repeat(reverse: true);
   }
   
   Future<void> _startRecording() async {
     try {
-      // Initialize audio service
-      _audioService.initialize(_apiService, _storageService);
-      
-      // Start streaming session
-      final success = await _audioService.startStreamingSession(widget.session);
-      
-      if (success) {
-        setState(() {
-          _isInitialized = true;
-        });
-        
-        // Haptic feedback
-        HapticFeedback.lightImpact();
-        
-        // Start monitoring amplitude
-        _startAmplitudeMonitoring();
-      } else {
-        _showErrorDialog('Failed to start recording session');
-        // Navigate back on failure
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
+      // Create session on backend first
+      final sessionId = await _apiService.createSession(widget.session);
+      if (sessionId == null) {
+        throw Exception('Failed to create session');
       }
+      
+      // Store the actual session ID
+      _actualSessionId = sessionId;
+      
+      // Update session with server ID
+      final updatedSession = RecordingSession(
+        id: sessionId,
+        patientId: widget.session.patientId,
+        userId: widget.session.userId,
+        patientName: widget.session.patientName,
+        status: 'recording',
+        startTime: DateTime.now(),
+      );
+      
+      // Start native audio recording
+      final success = await _nativeAudioService.startRecording(updatedSession);
+      if (!success) {
+        throw Exception('Failed to start native recording');
+      }
+      
+      // Connect to WebSocket
+      await _connectWebSocket(updatedSession);
+      
+      // Start audio streaming
+      _startAudioStreaming();
+      
+      // Start duration timer
+      _startDurationTimer();
+      
+        setState(() {
+        _isRecording = true;
+        _isPaused = false;
+      });
+      
+      HapticFeedback.mediumImpact();
+      
     } catch (e) {
-      _showErrorDialog('Error starting recording: $e');
-      // Navigate back on error
+      debugPrint('Error starting recording: $e');
       if (mounted) {
-        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error starting recording: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
   
-  void _startAmplitudeMonitoring() {
-    // Monitor amplitude every 100ms
-    Future.doWhile(() async {
-      if (_isInitialized && _audioService.isStreaming) {
-        setState(() {
-          _currentAmplitude = _audioService.currentAmplitude;
-        });
-        await Future.delayed(const Duration(milliseconds: 100));
-        return true;
+  Future<void> _connectWebSocket(RecordingSession session) async {
+    try {
+      final wsUrl = 'wss://medinote-app-backend-api.onrender.com/ws/audio-stream';
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      
+      await _channel!.ready;
+      
+      // Send session info
+      _channel!.sink.add(jsonEncode({
+        'type': 'session_start',
+        'session_id': _actualSessionId ?? session.id,
+        'user_id': session.userId,
+        'patient_id': session.patientId,
+        'patient_name': session.patientName,
+      }));
+      
+      // Listen for server messages
+      _channel!.stream.listen(
+        (message) {
+          debugPrint('Received server message: $message');
+        },
+        onError: (error) {
+          debugPrint('WebSocket error: $error');
+        },
+        onDone: () {
+          debugPrint('WebSocket connection closed');
+        },
+      );
+      
+      debugPrint('WebSocket connected successfully');
+    } catch (e) {
+      debugPrint('Error connecting WebSocket: $e');
+    }
+  }
+  
+  void _startAudioStreaming() {
+    // Stream audio data every 100ms
+    _audioStreamTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+      if (!_isRecording || _isPaused) return;
+      
+      try {
+        // Get current amplitude
+        final amplitude = await _nativeAudioService.getCurrentAmplitude();
+        _currentAmplitude = ((amplitude.current + 60) / 60 * 100).clamp(0.0, 100.0);
+        
+        // Update amplitude history for visualization
+        _amplitudeHistory.removeAt(0);
+        _amplitudeHistory.add(_currentAmplitude);
+        
+        // Send binary audio data to WebSocket
+        if (_channel != null && (_actualSessionId?.isNotEmpty ?? false)) {
+          // Get audio data from native audio service
+          final audioStream = _nativeAudioService.audioStream;
+          if (audioStream != null) {
+            audioStream.listen((audioData) {
+              if (_channel != null && _isRecording && !_isPaused) {
+                // Send binary audio data
+                _channel!.sink.add(audioData);
+                debugPrint('Sent binary audio data: ${audioData.length} bytes');
+              }
+            });
+          }
+        }
+        
+        // Use post-frame callback to avoid setState during build
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {});
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('Error in audio streaming: $e');
       }
-      return false;
     });
   }
   
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        title: Text('Recording - ${widget.session.patientName}'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            onPressed: _stopRecording,
-            icon: const Icon(Icons.stop),
-            tooltip: 'Stop Recording',
+  void _startDurationTimer() {
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isRecording && !_isPaused) {
+        setState(() {
+          _recordingDuration += const Duration(seconds: 1);
+        });
+      }
+    });
+  }
+  
+  Future<void> _pauseRecording() async {
+    try {
+      await _nativeAudioService.pauseRecording();
+      
+      setState(() {
+        _isPaused = true;
+      });
+      
+      HapticFeedback.lightImpact();
+      
+      // Send pause message to server
+      if (_channel != null && (_actualSessionId?.isNotEmpty ?? false)) {
+        _channel!.sink.add(jsonEncode({
+          'type': 'pause_streaming',
+          'session_id': _actualSessionId,
+        }));
+      }
+    } catch (e) {
+      debugPrint('Error pausing recording: $e');
+    }
+  }
+  
+  Future<void> _resumeRecording() async {
+    try {
+      await _nativeAudioService.resumeRecording();
+      
+      setState(() {
+        _isPaused = false;
+      });
+      
+      HapticFeedback.lightImpact();
+      
+      // Send resume message to server
+      if (_channel != null && (_actualSessionId?.isNotEmpty ?? false)) {
+        _channel!.sink.add(jsonEncode({
+          'type': 'resume_streaming',
+          'session_id': _actualSessionId,
+        }));
+      }
+    } catch (e) {
+      debugPrint('Error resuming recording: $e');
+    }
+  }
+  
+  Future<void> _stopRecording() async {
+    try {
+      await _nativeAudioService.stopRecording();
+      
+      setState(() {
+        _isRecording = false;
+        _isPaused = false;
+      });
+      
+      // Stop timers
+      _durationTimer?.cancel();
+      _audioStreamTimer?.cancel();
+      
+      // Send stop message to server and update session status
+      if (_channel != null && (_actualSessionId?.isNotEmpty ?? false)) {
+        _channel!.sink.add(jsonEncode({
+          'type': 'stop_streaming',
+          'session_id': _actualSessionId,
+        }));
+        
+        // Wait a moment for the message to be sent
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Close the WebSocket connection
+        _channel!.sink.close();
+        _channel = null;
+      }
+      
+      // Update session status to completed
+      if (_actualSessionId != null) {
+        await _apiService.updateSessionStatus(_actualSessionId!, 'completed', _chunkNumber);
+      }
+      
+      HapticFeedback.heavyImpact();
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Recording completed successfully'),
+            backgroundColor: Colors.green,
           ),
-        ],
-      ),
-      body: Consumer<RealtimeAudioService>(
-        builder: (context, audioService, child) {
-          if (!_isInitialized) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Starting recording...'),
-                ],
-              ),
-            );
-          }
-          
-          return Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Recording status
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: audioService.isStreaming ? Colors.red : Colors.grey,
-                    boxShadow: [
-                      BoxShadow(
-                        color: (audioService.isStreaming ? Colors.red : Colors.grey).withOpacity(0.3),
-                        blurRadius: 20,
-                        spreadRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    audioService.isStreaming ? Icons.mic : Icons.mic_off,
-                    color: Colors.white,
-                    size: 48,
-                  ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Status text
-                Text(
-                  audioService.isStreaming ? 'Recording...' : 'Stopped',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Duration
-                Text(
-                  _formatDuration(audioService.streamingDuration),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    color: Colors.black54,
-                  ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Audio level indicator
-                Container(
-                  width: double.infinity,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: _currentAmplitude / 100.0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: _currentAmplitude > 0 ? Colors.green : Colors.grey,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 8),
-                
-                Text(
-                  'Audio Level: ${_currentAmplitude.toStringAsFixed(1)}%',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.black54,
-                  ),
-                ),
-                
-                const SizedBox(height: 48),
-                
-                // Patient info
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Session Details',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text('Patient: ${widget.session.patientName}'),
-                      Text('Session ID: ${widget.session.id}'),
-                      Text('Status: ${audioService.streamingState.name}'),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Control buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    if (audioService.isStreaming && !audioService.isPaused)
-                      ElevatedButton.icon(
-                        onPressed: _pauseRecording,
-                        icon: const Icon(Icons.pause),
-                        label: const Text('Pause'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                      ),
-                    
-                    if (audioService.isPaused)
-                      ElevatedButton.icon(
-                        onPressed: _resumeRecording,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Resume'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                      ),
-                    
-                    ElevatedButton.icon(
-                      onPressed: _stopRecording,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('Stop'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+        );
+      }
+      
+      // Navigate back
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Error stopping recording: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error stopping recording: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
   
   String _formatDuration(Duration duration) {
@@ -288,51 +327,427 @@ class _SimpleRecordingScreenState extends State<SimpleRecordingScreen> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
   
-  Future<void> _pauseRecording() async {
-    try {
-      await _audioService.pauseStreaming();
-      HapticFeedback.lightImpact();
-    } catch (e) {
-      _showErrorDialog('Error pausing recording: $e');
-    }
+  @override
+  void dispose() {
+    _durationTimer?.cancel();
+    _audioStreamTimer?.cancel();
+    _waveformController.dispose();
+    _pulseController.dispose();
+    _channel?.sink.close();
+    super.dispose();
   }
   
-  Future<void> _resumeRecording() async {
-    try {
-      await _audioService.resumeStreaming();
-      HapticFeedback.lightImpact();
-    } catch (e) {
-      _showErrorDialog('Error resuming recording: $e');
-    }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.session.patientName),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (_isRecording) {
+              _showExitDialog();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+            // Patient info
+            _buildPatientInfo(),
+            
+            const SizedBox(height: 40),
+            
+            // Amplitude visualizer
+            _buildAmplitudeVisualizer(),
+            
+            const SizedBox(height: 40),
+            
+            // Recording duration
+            _buildDurationDisplay(),
+            
+            const SizedBox(height: 40),
+            
+            // Recording controls
+            _buildRecordingControls(),
+            
+            const SizedBox(height: 40),
+            
+            // Status indicator
+            _buildStatusIndicator(),
+          ],
+        ),
+      ),
+    );
   }
   
-  Future<void> _stopRecording() async {
-    try {
-      await _audioService.stopStreaming();
-      HapticFeedback.mediumImpact();
-      
-      // Navigate back
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      _showErrorDialog('Error stopping recording: $e');
-    }
-  }
-  
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+  Widget _buildPatientInfo() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[800]!),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.person,
+            color: Colors.white,
+            size: 32,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            widget.session.patientName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Recording Session',
+            style: TextStyle(
+              color: Colors.grey[400],
+              fontSize: 16,
+            ),
+          ),
+                ],
+              ),
+            );
+          }
+          
+  Widget _buildAmplitudeVisualizer() {
+    return Container(
+      height: 200,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[800]!),
+      ),
+            child: Column(
+        children: [
+          Row(
+              children: [
+              const Icon(Icons.graphic_eq, color: Colors.white),
+              const SizedBox(width: 8),
+              const Text(
+                'Audio Level',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              if (_isRecording)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'LIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                      ),
+                    ],
+                  ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: AnimatedBuilder(
+              animation: _waveformController,
+              builder: (context, child) {
+                return CustomPaint(
+                  size: const Size(double.infinity, double.infinity),
+                  painter: AmplitudePainter(
+                    amplitudeHistory: _amplitudeHistory,
+                    isRecording: _isRecording,
+                    animation: _waveformController,
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+                Text(
+            '${_currentAmplitude.toInt()}%',
+                  style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+                    fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),
     );
+  }
+  
+  Widget _buildDurationDisplay() {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _isRecording ? (1.0 + _pulseController.value * 0.1) : 1.0,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            decoration: BoxDecoration(
+              color: _isRecording ? Colors.red.withValues(alpha: 0.2) : Colors.grey[900],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _isRecording ? Colors.red : Colors.grey[800]!,
+                width: 2,
+              ),
+            ),
+            child: Text(
+              _formatDuration(_recordingDuration),
+              style: TextStyle(
+                color: _isRecording ? Colors.red : Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+  
+  Widget _buildRecordingControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        // Start/Resume button
+        if (!_isRecording)
+          _buildControlButton(
+            icon: Icons.play_arrow,
+            label: 'Start',
+            color: Colors.green,
+            onPressed: _startRecording,
+          )
+        else if (_isPaused)
+          _buildControlButton(
+            icon: Icons.play_arrow,
+            label: 'Resume',
+            color: Colors.blue,
+            onPressed: _resumeRecording,
+          )
+        else
+          _buildControlButton(
+            icon: Icons.pause,
+            label: 'Pause',
+            color: Colors.orange,
+            onPressed: _pauseRecording,
+          ),
+        
+        // Stop button
+        if (_isRecording)
+          _buildControlButton(
+            icon: Icons.stop,
+            label: 'Stop',
+            color: Colors.red,
+            onPressed: _stopRecording,
+          ),
+      ],
+    );
+  }
+  
+  Widget _buildControlButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      children: [
+                Container(
+          width: 80,
+          height: 80,
+                  decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.3),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(40),
+              onTap: onPressed,
+              child: Icon(
+                icon,
+                size: 40,
+                color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+        const SizedBox(height: 12),
+                Text(
+          label,
+                        style: TextStyle(
+            color: Colors.white,
+                          fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildStatusIndicator() {
+    String status;
+    Color statusColor;
+    
+    if (!_isRecording) {
+      status = 'Ready to Record';
+      statusColor = Colors.grey;
+    } else if (_isPaused) {
+      status = 'Recording Paused';
+      statusColor = Colors.orange;
+    } else {
+      status = 'Recording Active';
+      statusColor = Colors.red;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: statusColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+                  children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            status,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+      ),
+    );
+  }
+  
+  void _showExitDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'Exit Recording?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to exit? The current recording will be lost.',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _stopRecording();
+            },
+            child: const Text(
+              'Exit',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AmplitudePainter extends CustomPainter {
+  final List<double> amplitudeHistory;
+  final bool isRecording;
+  final Animation<double> animation;
+  
+  AmplitudePainter({
+    required this.amplitudeHistory,
+    required this.isRecording,
+    required this.animation,
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+    
+    final centerY = size.height / 2;
+    final barWidth = size.width / amplitudeHistory.length;
+    
+    for (int i = 0; i < amplitudeHistory.length; i++) {
+      final barHeight = (amplitudeHistory[i] / 100.0) * (size.height * 0.8);
+      final x = i * barWidth;
+      
+      if (isRecording) {
+        final opacity = 0.3 + (0.7 * animation.value);
+        paint.color = Colors.red.withValues(alpha: opacity);
+      } else {
+        paint.color = Colors.grey[600]!;
+      }
+      
+      final actualBarHeight = barHeight.clamp(4.0, size.height * 0.8);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            x + barWidth * 0.1,
+            centerY - actualBarHeight / 2,
+            barWidth * 0.8,
+            actualBarHeight,
+          ),
+          const Radius.circular(2),
+        ),
+        paint,
+      );
+    }
+  }
+  
+  @override
+  bool shouldRepaint(AmplitudePainter oldDelegate) {
+    return oldDelegate.amplitudeHistory != amplitudeHistory ||
+        oldDelegate.isRecording != isRecording ||
+        oldDelegate.animation.value != animation.value;
   }
 }

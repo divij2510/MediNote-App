@@ -283,8 +283,8 @@ class ApiService extends ChangeNotifier {
 
   Future<bool> updateSessionStatus(String sessionId, String status, int totalChunks, [int? durationSeconds]) async {
     try {
-      // Note: This endpoint doesn't exist in the current backend
-      // But we keep it for future compatibility
+      debugPrint('Updating session status: sessionId=$sessionId, status=$status, totalChunks=$totalChunks');
+      
       final response = await _dio.patch('/v1/session/$sessionId', data: {
         'status': status,
         'totalChunks': totalChunks,
@@ -292,9 +292,14 @@ class ApiService extends ChangeNotifier {
         if (durationSeconds != null) 'duration': durationSeconds,
       });
 
+      debugPrint('Session status update response: ${response.statusCode}');
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('Error updating session status: $e');
+      if (e is DioException && e.response != null) {
+        debugPrint('Response data: ${e.response?.data}');
+        debugPrint('Response status: ${e.response?.statusCode}');
+      }
       return false;
     }
   }
@@ -342,4 +347,44 @@ class ApiService extends ChangeNotifier {
       return [];
     }
   }
+
+  // Get audio stream URL for playback
+  Future<String?> getAudioStreamUrl(String sessionId) async {
+    try {
+      final response = await _dio.get('/v1/session/$sessionId/audio/stream');
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return data['stream_url'] as String?;
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('Error getting audio stream URL: $e');
+      return null;
+    }
+  }
+
+  // Get all sessions for the user
+  Future<List<RecordingSession>> getSessions() async {
+    try {
+      final response = await _dio.get('/v1/all-session', queryParameters: {
+        'userId': hardcodedUserId,
+      });
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data is Map<String, dynamic> && data.containsKey('sessions')) {
+          final List<dynamic> sessionsData = data['sessions'];
+          return sessionsData.map((sessionJson) => RecordingSession.fromJson(sessionJson)).toList();
+        }
+      }
+
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching sessions: $e');
+      return [];
+    }
+  }
+
 }

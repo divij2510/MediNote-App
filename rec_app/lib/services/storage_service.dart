@@ -222,4 +222,20 @@ class StorageService extends ChangeNotifier {
       return 0.0;
     }
   }
+
+  // Methods for interruption handler
+  List<AudioChunk> getQueuedChunks() {
+    return List.unmodifiable(_failedChunks);
+  }
+
+  Future<void> removeQueuedChunk(String sessionId, int chunkNumber) async {
+    try {
+      _failedChunks.removeWhere((chunk) => 
+        chunk.sessionId == sessionId && chunk.chunkNumber == chunkNumber);
+      await _saveFailedChunks();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error removing chunk: $e');
+    }
+  }
 }

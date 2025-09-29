@@ -353,7 +353,7 @@ class TestScenariosService extends ChangeNotifier {
     
     try {
       // Test microphone permissions
-      final hasPermission = await _nativeAudioService._requestPermissions();
+      final hasPermission = await _nativeAudioService.isRecording;
       
       if (hasPermission) {
         _testResults['Test 6'] = true;
