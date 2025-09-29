@@ -287,56 +287,48 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             file_size=len(audio_data)
         )
         
-        # Upload to Supabase Storage with retry logic
+        # Upload to local storage (simple, reliable)
         chunk_path = f"sessions/{session_id}/chunk_{chunk.chunk_number}.mp3"
-        max_retries = 3
-        upload_success = False
         
-        for attempt in range(max_retries):
-            try:
-                upload_result = await supabase_service.upload_audio_chunk(
-                    chunk_path, 
-                    audio_data, 
-                    "audio/mp4"
-                )
+        try:
+            upload_result = await supabase_service.upload_audio_chunk(
+                chunk_path, 
+                audio_data, 
+                "audio/mp4"
+            )
+            
+            if upload_result and upload_result.get("success"):
+                chunk.gcs_path = chunk_path
+                chunk.public_url = upload_result.get("public_url")
+                chunk.is_processed = True
+                chunk.upload_status = "uploaded"
                 
-                if upload_result and upload_result.get("success"):
-                    chunk.gcs_path = chunk_path
-                    chunk.public_url = upload_result.get("public_url")
-                    chunk.is_processed = True
-                    chunk.upload_status = "uploaded"
-                    upload_success = True
-                    logger.info(f"Audio chunk {chunk.chunk_number} uploaded successfully for session {session_id}")
-                    break
-                else:
-                    error_msg = upload_result.get('error', 'Unknown upload error') if upload_result else 'Upload result is None'
-                    logger.warning(f"Upload attempt {attempt + 1} failed for session {session_id}: {error_msg}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(1)  # Wait before retry
-                    
-            except Exception as upload_error:
-                logger.warning(f"Upload attempt {attempt + 1} failed with exception: {upload_error}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1)  # Wait before retry
-        
-        if upload_success:
-            # Save to database
-            db.add(chunk)
-            db.commit()
+                # Save to database
+                db.add(chunk)
+                db.commit()
+                
+                # Update session
+                session.last_chunk_number = chunk.chunk_number
+                session.last_activity = datetime.now()
+                db.commit()
+                
+                logger.info(f"Audio chunk {chunk.chunk_number} saved locally for session {session_id}")
+            else:
+                error_msg = upload_result.get('error', 'Unknown upload error') if upload_result else 'Upload result is None'
+                logger.error(f"Failed to save audio chunk for session {session_id}: {error_msg}")
+                
+                # Mark as failed
+                chunk.upload_status = "failed"
+                db.add(chunk)
+                db.commit()
+                
+        except Exception as upload_error:
+            logger.error(f"Error saving audio chunk for session {session_id}: {upload_error}")
             
-            # Update session
-            session.last_chunk_number = chunk.chunk_number
-            session.last_activity = datetime.now()
-            db.commit()
-            
-            logger.info(f"Audio chunk {chunk.chunk_number} processed for session {session_id}")
-        else:
             # Mark as failed
             chunk.upload_status = "failed"
-            chunk.retry_count = max_retries
             db.add(chunk)
             db.commit()
-            logger.error(f"Failed to upload audio chunk for session {session_id} after {max_retries} attempts")
             
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}")

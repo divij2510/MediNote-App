@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .routes import users, patients, templates, sessions, audio, websocket
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +31,10 @@ app.include_router(templates.router, tags=["templates"])
 app.include_router(sessions.router, tags=["sessions"])
 app.include_router(audio.router, tags=["audio"])
 app.include_router(websocket.router, tags=["websocket"])  
+
+# Mount static files for audio storage
+if os.path.exists("audio_storage"):
+    app.mount("/audio", StaticFiles(directory="audio_storage"), name="audio")
 
 @app.get("/")
 async def root():

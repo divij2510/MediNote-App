@@ -122,137 +122,39 @@ class SupabaseService:
             return []
     
     async def upload_audio_chunk(self, file_path: str, audio_data: bytes, mime_type: str = "audio/mp4") -> dict:
-        """Upload audio chunk to Supabase storage"""
+        """Store audio chunk locally and return static URL"""
         try:
-            if not self.supabase:
-                logger.error("Supabase client not initialized")
-                return {"success": False, "error": "Supabase not configured"}
+            import os
             
-            bucket_name = "recording_app"
+            # Create local storage directory
+            local_storage_dir = "audio_storage"
+            os.makedirs(local_storage_dir, exist_ok=True)
             
-            # Skip bucket creation since it already exists and we don't have permissions
-            # The bucket 'recording_app' already exists in your dashboard
-            logger.info(f"Using existing bucket: {bucket_name}")
+            # Create full path for local storage
+            local_file_path = os.path.join(local_storage_dir, file_path.replace('/', '_'))
             
-            # Upload using temporary file (Supabase expects file path, not BytesIO)
-            try:
-                import tempfile
-                import os
-                import io
-                
-                logger.info(f"Starting upload for {file_path}, data size: {len(audio_data)} bytes")
-                
-                # Create temporary file from BytesIO data
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
-                    temp_file.write(audio_data)
-                    temp_file_path = temp_file.name
-                
-                logger.info(f"Created temp file: {temp_file_path}")
-                
-                try:
-                    # Upload from file path
-                    logger.info(f"Attempting Supabase upload to bucket: {bucket_name}, path: {file_path}")
-                    result = self.supabase.storage.from_(bucket_name).upload(
-                        path=file_path,
-                        file=temp_file_path,
-                        file_options={
-                            "content-type": mime_type,
-                            "upsert": True
-                        }
-                    )
-                    
-                    logger.info(f"Supabase upload result type: {type(result)}, value: {result}")
-                    
-                    # Handle different response types
-                    if result is True:
-                        # Boolean True means success
-                        public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                        logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                        return {
-                            "success": True,
-                            "path": file_path,
-                            "public_url": public_url
-                        }
-                    elif isinstance(result, dict):
-                        if result.get('error'):
-                            error_msg = result.get('error', 'Upload failed')
-                            logger.error(f"Upload failed: {error_msg}")
-                            return {"success": False, "error": error_msg}
-                        else:
-                            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                            logger.info(f"Audio chunk uploaded successfully: {file_path}")
-                            return {
-                                "success": True,
-                                "path": file_path,
-                                "public_url": public_url
-                            }
-                    else:
-                        # Try to get public URL anyway
-                        try:
-                            public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
-                            logger.info(f"Audio chunk uploaded (unknown result type): {file_path}")
-                            return {
-                                "success": True,
-                                "path": file_path,
-                                "public_url": public_url
-                            }
-                        except Exception as url_error:
-                            logger.error(f"Could not get public URL: {url_error}")
-                            return {"success": False, "error": f"Upload result unclear: {type(result)}"}
-                            
-                except Exception as upload_error:
-                    logger.error(f"Supabase upload failed: {upload_error}")
-                    logger.info("Falling back to PostgreSQL storage...")
-                    
-                    # Fallback: Store audio data directly in PostgreSQL
-                    try:
-                        from ..database import get_db
-                        from ..models import AudioChunk
-                        import base64
-                        
-                        # Get database session
-                        db = next(get_db())
-                        
-                        # Create audio chunk record with binary data
-                        audio_chunk = AudioChunk(
-                            id=str(uuid.uuid4()),
-                            session_id=file_path.split('/')[1],  # Extract session ID from path
-                            chunk_number=int(file_path.split('_')[1].split('.')[0]),  # Extract chunk number
-                            gcs_path=file_path,
-                            public_url=f"postgres://audio/{file_path}",  # Mock URL for PostgreSQL storage
-                            mime_type=mime_type,
-                            file_size=len(audio_data),
-                            audio_data=audio_data,  # Store binary data directly
-                            upload_status="uploaded"
-                        )
-                        
-                        db.add(audio_chunk)
-                        db.commit()
-                        db.close()
-                        
-                        logger.info(f"Audio chunk stored in PostgreSQL: {file_path}")
-                        return {
-                            "success": True,
-                            "path": file_path,
-                            "public_url": f"postgres://audio/{file_path}",
-                            "storage_type": "postgresql"
-                        }
-                        
-                    except Exception as postgres_error:
-                        logger.error(f"PostgreSQL fallback failed: {postgres_error}")
-                        return {"success": False, "error": f"Both Supabase and PostgreSQL failed: {upload_error}, {postgres_error}"}
-                    
-                finally:
-                    # Clean up temporary file
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
-                        
-            except Exception as upload_error:
-                logger.error(f"Temp file creation failed: {upload_error}")
-                return {"success": False, "error": f"Upload failed: {upload_error}"}
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+            
+            # Write audio data to local file
+            with open(local_file_path, 'wb') as f:
+                f.write(audio_data)
+            
+            # Create static URL for serving
+            static_url = f"/audio/{file_path}"
+            
+            logger.info(f"Audio chunk saved locally: {local_file_path} ({len(audio_data)} bytes)")
+            
+            return {
+                "success": True,
+                "path": file_path,
+                "public_url": static_url,
+                "local_path": local_file_path,
+                "storage_type": "local"
+            }
                 
         except Exception as e:
-            logger.error(f"Error uploading audio chunk: {e}")
+            logger.error(f"Error saving audio chunk locally: {e}")
             return {"success": False, "error": str(e)}
 
 # Global instance
