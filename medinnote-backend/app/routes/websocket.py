@@ -59,11 +59,19 @@ async def websocket_endpoint(websocket: WebSocket):
     connection_id = str(uuid.uuid4())
     await manager.connect(websocket, connection_id)
     
+    # Start keepalive task
+    keepalive_task = asyncio.create_task(keepalive_ping(websocket, connection_id))
+    
     try:
         while True:
-            # Receive message from client
-            data = await websocket.receive()
-            
+            # Receive message with timeout
+            try:
+                data = await asyncio.wait_for(websocket.receive(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                await websocket.ping()
+                continue
+                
             if data["type"] == "websocket.receive":
                 if "text" in data:
                     # Handle text messages (session info, commands)
@@ -73,12 +81,35 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Handle binary data (audio stream)
                     audio_data = data["bytes"]
                     await handle_audio_data(websocket, connection_id, audio_data)
+            elif data["type"] == "websocket.ping":
+                # Handle ping
+                await websocket.pong()
                     
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected: {connection_id}")
         manager.disconnect(connection_id)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(connection_id)
+    finally:
+        keepalive_task.cancel()
+        try:
+            await keepalive_task
+        except asyncio.CancelledError:
+            pass
+
+async def keepalive_ping(websocket: WebSocket, connection_id: str):
+    """Send periodic ping to keep connection alive"""
+    try:
+        while True:
+            await asyncio.sleep(30)  # Send ping every 30 seconds
+            try:
+                await websocket.ping()
+            except Exception as e:
+                logger.error(f"Keepalive ping failed: {e}")
+                break
+    except asyncio.CancelledError:
+        pass
 
 async def handle_text_message(websocket: WebSocket, connection_id: str, message: dict):
     """Handle text messages from client"""
@@ -250,9 +281,8 @@ async def process_audio_chunk(session_id: str, audio_data: bytes):
             id=str(uuid.uuid4()),
             session_id=session_id,
             chunk_number=session.last_chunk_number + 1,
-            data=audio_data,
+            gcs_path="",  # Will be set after upload
             mime_type="audio/mp4",
-            timestamp=datetime.now(),
             file_size=len(audio_data)
         )
         

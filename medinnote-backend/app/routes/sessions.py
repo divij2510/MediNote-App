@@ -395,7 +395,7 @@ async def get_audio_stream_url(
             raise HTTPException(status_code=404, detail="Session not found")
         
         # Check if session belongs to user
-        if str(session.user_id) != current_user["id"]:
+        if str(session.user_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
         # For now, return a placeholder URL
@@ -422,7 +422,7 @@ async def stream_audio(
             raise HTTPException(status_code=404, detail="Session not found")
         
         # Check if session belongs to user
-        if str(session.user_id) != current_user["id"]:
+        if str(session.user_id) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
         # For now, return a simple response
