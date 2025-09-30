@@ -6,6 +6,7 @@ import '../models/audio_recording.dart';
 import '../services/audio_recording_service.dart';
 import '../services/audio_streaming_service.dart';
 import '../services/offline_recording_service.dart';
+import '../services/persistent_recording_service.dart';
 import '../widgets/offline_recording_status.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -57,7 +58,7 @@ class _RecordingScreenState extends State<RecordingScreen>
                 ],
               ),
               backgroundColor: Colors.blue[700],
-              duration: const Duration(seconds: 2),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -94,6 +95,13 @@ class _RecordingScreenState extends State<RecordingScreen>
               duration: const Duration(seconds: 5),
             ),
           );
+        }
+      },
+      onOfflineRecordingEnd: () {
+        if (mounted) {
+          print('🔄 Offline recording ended, switching UI back to online mode');
+          // The UI will automatically update when the offline recording service state changes
+          // This callback ensures the UI knows to switch back to online mode
         }
       },
     );
@@ -155,39 +163,47 @@ class _RecordingScreenState extends State<RecordingScreen>
       ),
       body: Consumer<AudioRecordingService>(
         builder: (context, audioService, child) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              children: [
-                // Recording Status Card
-                _buildStatusCard(audioService),
-                
-                // Offline Recording Status
-                const OfflineRecordingStatus(),
-                
-                const SizedBox(height: 24),
-                
-                  // Recording Status Display
-                  _buildRecordingStatus(audioService),
-                  
-                  const SizedBox(height: 8),
-                  
-                  // Streaming Status Display
-                  _buildStreamingStatus(audioService),
-                
-                const SizedBox(height: 20),
-                
-                // Recording Controls
-                _buildRecordingControls(audioService),
-                
-                const SizedBox(height: 20),
-                
-                // Recent Recordings
-                _buildRecentRecordings(),
-                
-                const SizedBox(height: 24),
-              ],
-            ),
+          return Consumer<PersistentRecordingService>(
+            builder: (context, persistentService, child) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  children: [
+                    // Recording Status Card
+                    _buildStatusCard(audioService),
+                    
+                    // Offline Recording Status
+                    const OfflineRecordingStatus(),
+                    
+                    // Call Interruption Status
+                    if (persistentService.wasPausedByCall)
+                      _buildCallInterruptionStatus(),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Recording Status Display
+                    _buildRecordingStatus(audioService),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // Streaming Status Display
+                    _buildStreamingStatus(audioService),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Recording Controls
+                    _buildRecordingControls(audioService),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // Recent Recordings
+                    _buildRecentRecordings(),
+                    
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              );
+            },
           );
         },
       ),
@@ -246,6 +262,47 @@ class _RecordingScreenState extends State<RecordingScreen>
     );
   }
 
+  Widget _buildCallInterruptionStatus() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.red[50],
+        border: Border.all(color: Colors.red[300]!),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.phone_paused, color: Colors.red[700]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Recording Paused - Call in Progress',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red[700],
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Recording has been paused due to an incoming call. It will automatically resume when the call ends.',
+                  style: TextStyle(
+                    color: Colors.red[600],
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildRecordingStatus(AudioRecordingService audioService) {
     return Container(
@@ -736,7 +793,13 @@ class _RecordingScreenState extends State<RecordingScreen>
 
   void _handleMainAction(AudioRecordingService audioService) async {
     try {
+      final persistentService = context.read<PersistentRecordingService>();
+      
       if (!audioService.isRecording) {
+        // Start persistent recording
+        final sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}_${widget.patient.id}';
+        final streamingService = context.read<AudioStreamingService>();
+        await persistentService.startRecording(sessionId, streamingService);
         await audioService.startRecording(widget.patient.id!);
         _pulseController.repeat(reverse: true);
         HapticFeedback.mediumImpact();
@@ -756,6 +819,10 @@ class _RecordingScreenState extends State<RecordingScreen>
 
   void _stopRecording(AudioRecordingService audioService) async {
     try {
+      final persistentService = context.read<PersistentRecordingService>();
+      
+      // Stop persistent recording
+      await persistentService.stopRecording();
       await audioService.stopRecording(widget.patient.id!);
       _pulseController.stop();
       HapticFeedback.mediumImpact();

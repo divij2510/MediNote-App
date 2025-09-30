@@ -10,11 +10,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <!-- Background processing permissions -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     
     <application
         android:label="medinote_app"
@@ -44,9 +41,9 @@
             </intent-filter>
         </activity>
         
-        <!-- Foreground service for maintaining WebSocket connection -->
+        <!-- Foreground service for persistent recording -->
         <service
-            android:name=".AudioRecordingService"
+            android:name="com.medinote.recording.RecordingForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />

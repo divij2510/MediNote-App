@@ -7,6 +7,7 @@ import 'services/audio_recording_service.dart';
 import 'services/audio_streaming_service.dart';
 import 'services/offline_recording_service.dart';
 import 'services/app_lifecycle_service.dart';
+import 'services/persistent_recording_service.dart';
 
 void main() {
   runApp(const MediNoteApp());
@@ -25,6 +26,7 @@ class MediNoteApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => AudioRecordingService()),
         ChangeNotifierProvider(create: (context) => AudioStreamingService()),
         ChangeNotifierProvider(create: (context) => OfflineRecordingService()),
+        ChangeNotifierProvider(create: (context) => PersistentRecordingService()),
       ],
       child: MaterialApp(
         title: 'MediNote',
@@ -105,6 +107,11 @@ class _BackendHealthWrapperState extends State<BackendHealthWrapper> {
     audioStreamingService.setOfflineService(offlineService);
     await audioStreamingService.initialize();
     print('🔄 Audio streaming service initialized with offline queue support');
+    
+    // Initialize persistent recording service
+    final persistentRecordingService = PersistentRecordingService();
+    await persistentRecordingService.initialize();
+    print('🎙️ Persistent recording service initialized');
   }
 
   Future<void> _checkBackendHealth() async {

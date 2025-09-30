@@ -169,6 +169,13 @@ db.serialize(() => {
     chunk_order INTEGER,
     FOREIGN KEY (session_id) REFERENCES audio_sessions (session_id)
   )`);
+
+  // Create session end flags table to track properly ended sessions
+  db.run(`CREATE TABLE IF NOT EXISTS session_end_flags (
+    session_id TEXT PRIMARY KEY,
+    ended_at INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES audio_sessions (session_id)
+  )`);
 });
 
 // WebSocket connection manager
@@ -324,7 +331,7 @@ wss.on('connection', (ws, req) => {
 
         case 'audio_chunk': {
           // Check if this is an offline chunk upload (session not active but exists in DB)
-          const isOfflineUpload = !wsManager.isSessionActive(sessionId);
+          const isOfflineChunkUpload = !wsManager.isSessionActive(sessionId);
           
           if (wsManager.isSessionActive(sessionId) && !wsManager.isSessionPaused(sessionId)) {
             console.log(`🎵 Received audio chunk for active session: ${sessionId} (${message.chunk_size} bytes)`);
@@ -344,7 +351,7 @@ wss.on('connection', (ws, req) => {
               session_id: sessionId,
               chunk_id: chunkId
             }));
-          } else if (isOfflineUpload) {
+          } else if (isOfflineChunkUpload) {
             console.log(`📤 Received offline chunk for session: ${sessionId} (${message.chunk_size} bytes)`);
             
             // Store offline chunk in database - append to existing session
@@ -352,46 +359,66 @@ wss.on('connection', (ws, req) => {
             const audioData = {
               chunk_data: message.chunk_data,
               chunk_size: message.chunk_size,
-              timestamp: message.timestamp
+              timestamp: message.timestamp,
+              sequence: message.sequence // Include sequence from client
             };
             
-            // Get the next chunk order for this session
-            db.get(`
-              SELECT MAX(chunk_order) as max_order 
-              FROM audio_chunks 
-              WHERE session_id = ?
-            `, [sessionId], (err, row) => {
-              if (err) {
-                console.error('❌ Error getting max chunk order:', err);
-                return;
-              }
-              
-              const nextOrder = (row?.max_order || 0) + 1;
-              console.log(`📊 Session ${sessionId} current max order: ${row?.max_order || 0}, next order: ${nextOrder}`);
-              
-              wsManager.storeAudioChunk(sessionId, chunkId, audioData, nextOrder);
-              
-              console.log(`💾 Stored offline chunk ${chunkId} for session ${sessionId} (order: ${nextOrder})`);
-            });
+            // Use client-provided sequence number for proper ordering
+            const sequenceNumber = message.sequence || 
+              `(SELECT COALESCE(MAX(chunk_order), 0) + 1 FROM audio_chunks WHERE session_id = ?)`;
             
-            ws.send(JSON.stringify({
-              type: 'offline_chunk_received',
-              session_id: sessionId,
-              chunk_id: chunkId
-            }));
+            const stmt = db.prepare(`
+              INSERT INTO audio_chunks (session_id, chunk_id, amplitude_data, chunk_order)
+              VALUES (?, ?, ?, ${message.sequence ? '?' : '(SELECT COALESCE(MAX(chunk_order), 0) + 1 FROM audio_chunks WHERE session_id = ?)'})
+            `);
+            
+            const params = message.sequence ? 
+              [sessionId, chunkId, JSON.stringify(audioData), message.sequence] :
+              [sessionId, chunkId, JSON.stringify(audioData), sessionId];
+            
+            stmt.run(params, function(err) {
+              if (err) {
+                console.error('❌ Error storing offline chunk:', err);
+              } else {
+                console.log(`💾 Stored offline chunk ${chunkId} for session ${sessionId} (sequence: ${message.sequence}, size: ${message.chunk_size} bytes)`);
+                
+                ws.send(JSON.stringify({
+                  type: 'offline_chunk_received',
+                  session_id: sessionId,
+                  chunk_id: chunkId,
+                  sequence: message.sequence
+                }));
+              }
+            });
           } else if (wsManager.isSessionPaused(sessionId)) {
             console.log(`⏸️ Ignoring audio chunk for paused session: ${sessionId}`);
           }
           break;
         }
 
-        case 'session_end': {
+        case 'session_end':
           // Handle both active sessions and offline uploads
           const isActiveSession = wsManager.isSessionActive(sessionId);
           
           const isOfflineSessionEnd = !isActiveSession;
           console.log(`🎬 Session ended for: ${sessionId} (${isOfflineSessionEnd ? 'offline upload' : 'active session'})`);
           console.log(`🔍 sessionProperlyEnded before: ${sessionProperlyEnded}`);
+          
+          // Mark session as properly ended IMMEDIATELY to prevent auto-save
+          sessionProperlyEnded = true;
+          console.log(`🔍 sessionProperlyEnded set to: ${sessionProperlyEnded}`);
+          
+          // Store session end flag in database to prevent auto-save
+          db.run(`
+            INSERT OR REPLACE INTO session_end_flags (session_id, ended_at)
+            VALUES (?, ?)
+          `, [sessionId, Date.now()], (err) => {
+            if (err) {
+              console.error('❌ Error storing session end flag:', err);
+            } else {
+              console.log(`🏁 Stored session end flag for ${sessionId}`);
+            }
+          });
           
           // Get chunk count and total size from database
           db.get(`
@@ -446,12 +473,18 @@ wss.on('connection', (ws, req) => {
               session_id: sessionId
             }));
             
-            // Mark session as properly ended to prevent auto-save
-            sessionProperlyEnded = true;
             console.log(`🔍 sessionProperlyEnded after: ${sessionProperlyEnded}`);
           break;
-        }
 
+        case 'ping':
+          // Handle keep alive ping to maintain WebSocket connection
+          console.log(`🏓 Received keep alive ping for session: ${sessionId}`);
+          ws.send(JSON.stringify({
+            type: 'pong',
+            session_id: sessionId,
+            timestamp: message.timestamp
+          }));
+          break;
 
         case 'session_pause':
           wsManager.pauseSession(sessionId);
@@ -513,10 +546,59 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Auto-save session when WebSocket closes abruptly
+// Auto-save session when WebSocket closes abruptly (with delay to allow offline chunks)
 function _autoSaveSessionOnClose(sessionId) {
   console.log(`🔄 Auto-saving session on close: ${sessionId}`);
   
+  // Delay auto-save to give time for offline chunks to arrive
+  // This prevents race condition where auto-save happens before offline chunks
+  // Shorter delay for abrupt disconnections, longer for graceful endings
+  const delayMs = 1500; // 1.5 second delay for faster response to abrupt disconnections
+  setTimeout(() => {
+    _performAutoSave(sessionId);
+  }, delayMs);
+}
+
+// Perform the actual auto-save operation (asynchronous)
+function _performAutoSave(sessionId) {
+  console.log(`🔄 Performing delayed auto-save for session: ${sessionId}`);
+  
+  // Check if session was completed by offline chunks in the meantime
+  db.get('SELECT id, is_completed FROM audio_sessions WHERE session_id = ?', [sessionId], (err, existingSession) => {
+    if (err) {
+      console.error('❌ Error checking existing session:', err);
+      return;
+    }
+    
+    // If session was already completed by offline chunks, skip auto-save
+    if (existingSession && existingSession.is_completed) {
+      console.log(`✅ Session ${sessionId} was already completed by offline chunks, skipping auto-save`);
+      return;
+    }
+    
+    // Check if session was properly ended by looking for session end flag
+    // This prevents auto-save from overriding sessions that are being completed by offline chunks
+    db.get(`
+      SELECT ended_at FROM session_end_flags WHERE session_id = ?
+    `, [sessionId], (err, row) => {
+      if (err) {
+        console.error('❌ Error checking session end status:', err);
+        return;
+      }
+      
+      if (row && row.ended_at) {
+        console.log(`✅ Session ${sessionId} was properly ended at ${new Date(row.ended_at)}, skipping auto-save`);
+        return;
+      }
+      
+      // Continue with auto-save logic...
+      _continueAutoSave(sessionId);
+    });
+  });
+}
+
+// Continue with auto-save logic after checking session end status
+function _continueAutoSave(sessionId) {
   // Get chunk count and total size from database
   db.get(`
     SELECT 
@@ -543,18 +625,22 @@ function _autoSaveSessionOnClose(sessionId) {
         }
         
         if (existingSession) {
-          // Update existing session with new data (keep as incomplete)
-          db.run(`
-            UPDATE audio_sessions 
-            SET file_size = ? 
-            WHERE session_id = ?
-          `, [totalSize, sessionId], (err) => {
-            if (err) {
-              console.error('❌ Error updating session:', err);
-            } else {
-              console.log(`✅ Updated existing session ${sessionId} with ${totalSize} bytes (incomplete)`);
-            }
-          });
+          // Only update if session is not already complete
+          if (!existingSession.is_completed) {
+            db.run(`
+              UPDATE audio_sessions 
+              SET file_size = ? 
+              WHERE session_id = ?
+            `, [totalSize, sessionId], (err) => {
+              if (err) {
+                console.error('❌ Error updating session:', err);
+              } else {
+                console.log(`✅ Updated existing session ${sessionId} with ${totalSize} bytes (incomplete)`);
+              }
+            });
+          } else {
+            console.log(`✅ Session ${sessionId} is already complete, skipping auto-save`);
+          }
         } else {
           // Create new incomplete session
           saveAudioSession(sessionId, totalSize, chunkCount, false);

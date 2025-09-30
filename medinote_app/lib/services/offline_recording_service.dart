@@ -19,13 +19,16 @@ class OfflineRecordingService with ChangeNotifier {
   Function(int chunkCount)? _onUploadStart;
   Function(int chunkCount)? _onUploadSuccess;
   Function(String error)? _onUploadError;
+  Function()? _onOfflineRecordingEnd; // New callback for when offline recording ends
 
   final Connectivity _connectivity = Connectivity();
   final AudioStreamingService _streamingService = AudioStreamingService();
   
   bool _isOfflineRecording = false;
+  bool _isUploading = false;
   String? _currentOfflineSessionId;
   List<Map<String, dynamic>> _offlineChunks = [];
+  int _offlineChunkSequence = 0;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _uploadTimer;
   
@@ -47,12 +50,13 @@ class OfflineRecordingService with ChangeNotifier {
     Function(int chunkCount)? onUploadStart,
     Function(int chunkCount)? onUploadSuccess,
     Function(String error)? onUploadError,
+    Function()? onOfflineRecordingEnd, // New callback
   }) {
     _onUploadStart = onUploadStart;
     _onUploadSuccess = onUploadSuccess;
     _onUploadError = onUploadError;
+    _onOfflineRecordingEnd = onOfflineRecordingEnd; // New callback
   }
-
   
   // Start offline recording when network fails
   Future<void> startOfflineRecording(String sessionId) async {
@@ -61,6 +65,7 @@ class OfflineRecordingService with ChangeNotifier {
     _isOfflineRecording = true;
     _currentOfflineSessionId = sessionId;
     _offlineChunks.clear();
+    _offlineChunkSequence = 0;
     
     print('📱 Starting offline recording for session: $sessionId');
     notifyListeners();
@@ -68,12 +73,14 @@ class OfflineRecordingService with ChangeNotifier {
   
   // Add chunk to offline storage
   Future<void> addOfflineChunk(String sessionId, Map<String, dynamic> chunkData) async {
-    if (!_isOfflineRecording || _currentOfflineSessionId != sessionId) return;
+    if (!_isOfflineRecording || _currentOfflineSessionId != sessionId || _isUploading) return;
     
+    _offlineChunkSequence++;
     _offlineChunks.add({
       'session_id': sessionId,
       'chunk_data': chunkData,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'sequence': _offlineChunkSequence,
     });
     
     // Save to local storage
@@ -90,6 +97,10 @@ class OfflineRecordingService with ChangeNotifier {
     _currentOfflineSessionId = null;
     
     print('📱 Stopped offline recording');
+    
+    // Notify UI that offline recording has ended
+    _onOfflineRecordingEnd?.call();
+    
     notifyListeners();
   }
   
@@ -102,55 +113,149 @@ class OfflineRecordingService with ChangeNotifier {
     );
     
     if (isOnline && _isOfflineRecording) {
-      print('🌐 Network restored, attempting to upload offline chunks...');
-      await _uploadOfflineChunks();
+      print('🌐 Network restored, but staying in offline mode until recording ends...');
+      // Don't upload chunks automatically - wait for recording to end
     } else if (!isOnline && _streamingService.isStreaming) {
       print('📱 Network lost, switching to offline recording...');
       await startOfflineRecording(_streamingService.sessionId!);
     }
   }
   
+  // Manually trigger upload when recording ends
+  Future<void> uploadOfflineChunksOnRecordingEnd() async {
+    if (_isOfflineRecording && _offlineChunks.isNotEmpty) {
+      print('🎬 Recording ended, checking backend health before uploading offline chunks...');
+      await _uploadOfflineChunksWithHealthCheck();
+      
+      // Ensure UI is updated after offline upload completes
+      print('📱 Offline upload completed, ensuring UI state is updated');
+      notifyListeners();
+    } else {
+      print('📱 No offline recording or chunks to upload');
+      // Still reset the state if we were in offline mode
+      if (_isOfflineRecording) {
+        await stopOfflineRecording();
+      }
+    }
+  }
+  
+  // Upload offline chunks with health check retry logic
+  Future<void> _uploadOfflineChunksWithHealthCheck() async {
+    if (_offlineChunks.isEmpty || _isUploading) return;
+    
+    print('🏥 Starting backend health check before offline chunk upload...');
+    
+    int retryCount = 0;
+    const maxRetries = 10;
+    const retryDelay = Duration(seconds: 2);
+    
+    while (retryCount < maxRetries) {
+      try {
+        print('🏥 Health check attempt ${retryCount + 1}/$maxRetries...');
+        
+        // Import ApiService for health check
+        final healthResponse = await ApiService.checkHealth();
+        print('✅ Backend health check successful: $healthResponse');
+        
+        // Health check passed, proceed with upload
+        await _uploadOfflineChunks();
+        return;
+        
+      } catch (e) {
+        retryCount++;
+        print('❌ Health check failed (attempt $retryCount/$maxRetries): $e');
+        
+        if (retryCount < maxRetries) {
+          print('⏳ Retrying health check in ${retryDelay.inSeconds} seconds...');
+          await Future.delayed(retryDelay);
+        } else {
+          print('❌ Max retries reached. Backend appears to be down. Keeping offline chunks for later upload.');
+          _onUploadError?.call('Backend health check failed after $maxRetries attempts: $e');
+          return;
+        }
+      }
+    }
+  }
+
   // Upload offline chunks when network is restored
   Future<void> _uploadOfflineChunks() async {
-    if (_offlineChunks.isEmpty) return;
+    if (_offlineChunks.isEmpty || _isUploading) return;
+    
+    _isUploading = true;
     
     try {
-      print('📤 Uploading ${_offlineChunks.length} offline chunks...');
+      print('📤 Uploading ${_offlineChunks.length} offline chunks (IT MAY TAKE A WHILE)');
+      
+      // Create a copy of the chunks to avoid concurrent modification
+      final chunksToUpload = List<Map<String, dynamic>>.from(_offlineChunks);
+      
+      // Sort chunks by sequence to ensure proper order
+      chunksToUpload.sort((a, b) => (a['sequence'] ?? 0).compareTo(b['sequence'] ?? 0));
       
       // Show upload start notification
-      _onUploadStart?.call(_offlineChunks.length);
+      _onUploadStart?.call(chunksToUpload.length);
       
       // Create a temporary WebSocket connection for uploading
       final channel = await _createUploadConnection();
       
-      for (final chunk in _offlineChunks) {
-        channel.sink.add(jsonEncode({
-          'type': 'audio_chunk',
-          'session_id': chunk['session_id'],
-          'chunk_data': chunk['chunk_data'],
-        }));
-        
-        // Small delay to prevent overwhelming the server
-        await Future.delayed(const Duration(milliseconds: 10));
+      for (int i = 0; i < chunksToUpload.length; i++) {
+        final chunk = chunksToUpload[i];
+        try {
+          print('📤 Uploading offline chunk ${i + 1}/${chunksToUpload.length} for session ${chunk['session_id']} (sequence: ${chunk['sequence']})');
+          
+          // Send chunk with proper sequencing
+          channel.sink.add(jsonEncode({
+            'type': 'audio_chunk',
+            'session_id': chunk['session_id'],
+            'chunk_data': chunk['chunk_data'],
+            'chunk_size': chunk['chunk_size'],
+            'timestamp': chunk['timestamp'],
+            'sequence': chunk['sequence'], // Include sequence for proper ordering
+          }));
+          
+          // Longer delay to prevent congestion and ensure proper sequencing
+          // Progressive delay: first chunks get shorter delay, later chunks get longer delay
+          final delayMs = 50 + (i * 5); // 50ms base + 5ms per chunk
+          await Future.delayed(Duration(milliseconds: delayMs));
+          
+          // Log progress every 10 chunks
+          if ((i + 1) % 10 == 0) {
+            print('📊 Upload progress: ${i + 1}/${chunksToUpload.length} chunks sent');
+          }
+        } catch (chunkError) {
+          print('❌ Error sending chunk ${i + 1}: $chunkError');
+          // Continue with next chunk
+        }
       }
       
       // Send session end message
-      channel.sink.add(jsonEncode({
-        'type': 'session_end',
-        'session_id': _currentOfflineSessionId,
-      }));
+      try {
+        channel.sink.add(jsonEncode({
+          'type': 'session_end',
+          'session_id': _currentOfflineSessionId,
+        }));
+      } catch (endError) {
+        print('❌ Error sending session end: $endError');
+      }
       
       // Close connection
-      await channel.sink.close();
+      try {
+        await channel.sink.close();
+      } catch (closeError) {
+        print('❌ Error closing connection: $closeError');
+      }
+      
+      // Store the number of chunks before clearing
+      final chunksUploaded = chunksToUpload.length;
       
       // Clear offline data
       await _clearOfflineChunks();
       await stopOfflineRecording();
       
-      print('✅ Successfully uploaded offline chunks');
+      print('✅ Successfully uploaded $chunksUploaded offline chunks');
       
       // Show success notification
-      _onUploadSuccess?.call(_offlineChunks.length);
+      _onUploadSuccess?.call(chunksUploaded);
       
     } catch (e) {
       print('❌ Failed to upload offline chunks: $e');
@@ -158,6 +263,8 @@ class OfflineRecordingService with ChangeNotifier {
       
       // Show error notification
       _onUploadError?.call(e.toString());
+    } finally {
+      _isUploading = false;
     }
   }
   
@@ -182,16 +289,21 @@ class OfflineRecordingService with ChangeNotifier {
         if (_offlineChunks.isNotEmpty) {
           print('📱 Found ${_offlineChunks.length} pending offline chunks for session: $_currentOfflineSessionId');
           
-          // Try to upload immediately if online
-          final connectivityResults = await _connectivity.checkConnectivity();
-          final isOnline = connectivityResults.any((result) => 
-            result == ConnectivityResult.wifi || 
-            result == ConnectivityResult.mobile ||
-            result == ConnectivityResult.ethernet
-          );
-          
-          if (isOnline) {
-            await _uploadOfflineChunks();
+          // Only upload if this is NOT the current active session
+          if (!_isOfflineRecording) {
+            // Try to upload immediately if online
+            final connectivityResults = await _connectivity.checkConnectivity();
+            final isOnline = connectivityResults.any((result) => 
+              result == ConnectivityResult.wifi || 
+              result == ConnectivityResult.mobile ||
+              result == ConnectivityResult.ethernet
+            );
+            
+            if (isOnline) {
+              await _uploadOfflineChunksWithHealthCheck();
+            }
+          } else {
+            print('📱 Skipping upload - current session is still active');
           }
         }
       }

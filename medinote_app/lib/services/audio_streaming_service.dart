@@ -12,7 +12,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'api_service.dart';
 import 'offline_recording_service.dart';
 import 'app_lifecycle_service.dart';
-import 'background_websocket_service.dart';
 
 class AudioStreamingService with ChangeNotifier {
   static final AudioStreamingService _instance = AudioStreamingService._internal();
@@ -28,7 +27,6 @@ class AudioStreamingService with ChangeNotifier {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _websocketHealthTimer;
   AppLifecycleService? _appLifecycleService;
-  final BackgroundWebSocketService _backgroundService = BackgroundWebSocketService();
 
   WebSocketChannel? _channel;
   RecorderStream? _recorder;
@@ -70,69 +68,19 @@ class AudioStreamingService with ChangeNotifier {
     if (_appLifecycleService == null) return;
     
     if (_appLifecycleService!.isInBackground && _isStreaming) {
-      print('📱 App went to background - switching to background WebSocket service');
-      
-      // Start background WebSocket service to maintain connection
-      _startBackgroundService();
-      
+      print('📱 App went to background - maintaining WebSocket connection');
+      // Don't switch to offline mode when app goes to background
+      // Keep the WebSocket connection alive
     } else if (_appLifecycleService!.isInForeground && _isStreaming) {
-      print('📱 App came to foreground - switching back to foreground WebSocket');
-      
-      // Stop background service and resume normal WebSocket
-      _stopBackgroundService();
-      
+      print('📱 App came to foreground - checking WebSocket connection');
       // Check if WebSocket is still connected when app comes back
-      if (!_isConnected && _channel != null) {
+      // But don't reconnect if offline recording is active
+      if (!_isConnected && _channel != null && _offlineService?.isOfflineRecording != true) {
         print('🔄 WebSocket disconnected while in background, attempting to reconnect...');
         _reconnectWebSocket();
+      } else if (_offlineService?.isOfflineRecording == true) {
+        print('📱 Offline recording active, staying in offline mode');
       }
-    }
-  }
-
-  // Start background WebSocket service
-  Future<void> _startBackgroundService() async {
-    if (_sessionId == null) return;
-    
-    try {
-      // Check if background processing is allowed
-      final bool allowed = await _backgroundService.isBackgroundProcessingAllowed();
-      if (!allowed) {
-        print('⚠️ Background processing not allowed, requesting permissions...');
-        await _requestBackgroundPermissions();
-      }
-      
-      // Start background WebSocket connection
-      await _backgroundService.startBackgroundConnection(_sessionId!);
-      print('✅ Background WebSocket service started');
-      
-    } catch (e) {
-      print('❌ Failed to start background service: $e');
-    }
-  }
-
-  // Stop background WebSocket service
-  Future<void> _stopBackgroundService() async {
-    try {
-      await _backgroundService.stopBackgroundConnection();
-      print('✅ Background WebSocket service stopped');
-    } catch (e) {
-      print('❌ Failed to stop background service: $e');
-    }
-  }
-
-  // Request background processing permissions
-  Future<void> _requestBackgroundPermissions() async {
-    try {
-      // Request battery optimization exemption
-      final bool batteryExempt = await _backgroundService.requestBatteryOptimizationExemption();
-      print('🔋 Battery optimization exemption: $batteryExempt');
-      
-      // Request system alert window permission
-      final bool overlayPermission = await _backgroundService.requestSystemAlertWindowPermission();
-      print('🪟 System alert window permission: $overlayPermission');
-      
-    } catch (e) {
-      print('❌ Failed to request background permissions: $e');
     }
   }
 
@@ -278,7 +226,7 @@ class AudioStreamingService with ChangeNotifier {
   }
 
   // Process audio chunk in real-time
-  Future<void> _processAudioChunk(Uint8List audioChunk) async {
+  void _processAudioChunk(Uint8List audioChunk) {
     if (!_isStreaming) return;
     
     try {
@@ -323,8 +271,12 @@ class AudioStreamingService with ChangeNotifier {
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       };
       
-      // Check if we're online and connected
-      if (_isConnected && _channel != null) {
+      // Check if offline recording has been started - if so, always store offline
+      if (_offlineService?.isOfflineRecording == true) {
+        // Once offline recording starts, all chunks go offline until recording ends
+        print('📱 Offline recording active, storing chunk offline');
+        _offlineService?.addOfflineChunk(_sessionId!, chunkData);
+      } else if (_isConnected && _channel != null) {
         try {
           // Send to backend via WebSocket
           _channel!.sink.add(jsonEncode({
@@ -338,15 +290,6 @@ class AudioStreamingService with ChangeNotifier {
           // WebSocket send failed, switch to offline mode
           print('❌ WebSocket send failed: $e');
           _handleWebSocketFailure();
-          _offlineService?.addOfflineChunk(_sessionId!, chunkData);
-        }
-      } else if (_backgroundService.isConnected) {
-        // Use background service if app is in background
-        try {
-          await _backgroundService.sendAudioChunk(chunkData);
-          print('📤 Sent audio chunk via background service ${_chunksStreamed} (${audioChunk.length} bytes)');
-        } catch (e) {
-          print('❌ Background service send failed: $e');
           _offlineService?.addOfflineChunk(_sessionId!, chunkData);
         }
       } else {
@@ -403,12 +346,13 @@ class AudioStreamingService with ChangeNotifier {
         result == ConnectivityResult.ethernet
       );
       
-      if (!isOnline && _isStreaming) {
+      if (!isOnline && _isStreaming && !_offlineService!.isOfflineRecording) {
         print('📱 Network lost, switching to offline recording...');
         _offlineService!.startOfflineRecording(_sessionId!);
       } else if (isOnline && _offlineService!.isOfflineRecording) {
-        print('🌐 Network restored, will upload offline chunks...');
-        // The offline service will handle the upload automatically
+        print('🌐 Network restored, but staying in offline mode until recording ends...');
+        // Don't restart online streaming - stay in offline mode until recording ends
+        // The offline service will handle the upload automatically when recording ends
       }
     });
   }
@@ -478,6 +422,20 @@ class AudioStreamingService with ChangeNotifier {
     
     print('⏸️ Pausing audio streaming: $_sessionId');
     
+    // Send pause message to backend
+    if (_channel != null && _sessionId != null) {
+      try {
+        _channel!.sink.add(jsonEncode({
+          'type': 'session_pause',
+          'session_id': _sessionId,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }));
+        print('⏸️ Sent pause message to backend for session: $_sessionId');
+      } catch (e) {
+        print('❌ Error sending pause message: $e');
+      }
+    }
+    
     // Pause the recorder
     await _recorder?.stop();
     
@@ -493,6 +451,20 @@ class AudioStreamingService with ChangeNotifier {
     if (!_isStreaming) return;
     
     print('▶️ Resuming audio streaming: $_sessionId');
+    
+    // Send resume message to backend
+    if (_channel != null && _sessionId != null) {
+      try {
+        _channel!.sink.add(jsonEncode({
+          'type': 'session_resume',
+          'session_id': _sessionId,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }));
+        print('▶️ Sent resume message to backend for session: $_sessionId');
+      } catch (e) {
+        print('❌ Error sending resume message: $e');
+      }
+    }
     
     // Resume the recorder
     await _recorder?.start();
@@ -520,6 +492,9 @@ class AudioStreamingService with ChangeNotifier {
       _audioStream = null;
       _recorder = null;
       
+      // Notify UI immediately that recording has stopped
+      notifyListeners();
+      
       // Stop amplitude monitoring
       _amplitudeTimer?.cancel();
       _amplitudeTimer = null;
@@ -535,15 +510,12 @@ class AudioStreamingService with ChangeNotifier {
       // Clear audio data
       _recentAudioData.clear();
       
-      // Send session end message
+      // Send session end message first
       if (_isConnected && _channel != null) {
         _channel!.sink.add(jsonEncode({
           'type': 'session_end',
           'session_id': _sessionId,
         }));
-      } else if (_backgroundService.isConnected) {
-        // Use background service if app is in background
-        await _backgroundService.endSession();
       }
       
       // Close WebSocket with proper close code
@@ -562,6 +534,15 @@ class AudioStreamingService with ChangeNotifier {
       _chunksStreamed = 0;
       notifyListeners();
     }
+    
+    // Upload offline chunks asynchronously after UI is updated
+    if (_offlineService?.isOfflineRecording == true) {
+      print('🎬 Recording ended, uploading offline chunks asynchronously...');
+      // Don't await - let it happen in background
+      _offlineService?.uploadOfflineChunksOnRecordingEnd().catchError((error) {
+        print('❌ Error uploading offline chunks: $error');
+      });
+    }
   }
 
   // Getters
@@ -570,6 +551,24 @@ class AudioStreamingService with ChangeNotifier {
   String? get sessionId => _sessionId;
   int get bytesStreamed => _bytesStreamed;
   int get chunksStreamed => _chunksStreamed;
+  
+  // Send keep alive ping to maintain WebSocket connection
+  void sendKeepAlivePing() {
+    if (_isConnected && _channel != null && _sessionId != null) {
+      try {
+        _channel!.sink.add(jsonEncode({
+          'type': 'ping',
+          'session_id': _sessionId,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }));
+        print('🏓 Sent keep alive ping for session: $_sessionId');
+      } catch (e) {
+        print('❌ Error sending keep alive ping: $e');
+        _handleWebSocketFailure();
+      }
+    }
+  }
+
   
   @override
   void dispose() {
@@ -581,7 +580,6 @@ class AudioStreamingService with ChangeNotifier {
     _recorderStatus?.cancel();
     _audioStream?.cancel();
     _recorder?.dispose();
-    _backgroundService.stopBackgroundConnection();
     super.dispose();
   }
 }
