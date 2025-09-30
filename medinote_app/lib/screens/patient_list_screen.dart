@@ -210,24 +210,21 @@ class _PatientListScreenState extends State<PatientListScreen> {
           ),
           TextButton(
             onPressed: () async {
-              // Store ScaffoldMessenger reference before any async operations
-              final scaffoldMessenger = ScaffoldMessenger.of(context);
-              Navigator.pop(context);
+              // Store references before any async operations
+              final patientProvider = context.read<PatientProvider>();
+              final patientId = patient.id!;
+              
               try {
-                print('🗑️ Deleting patient: ${patient.name} (ID: ${patient.id})');
-                await context.read<PatientProvider>().deletePatient(patient.id!);
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(content: Text('${patient.name} deleted')),
-                  );
-                }
+                print('🗑️ Deleting patient: ${patient.name} (ID: $patientId)');
+                await patientProvider.deletePatient(patientId);
+                
+                // Close dialog and refresh the list
+                Navigator.pop(context);
+                // The provider will automatically update the UI
               } catch (e) {
                 print('🗑️ Delete patient error: $e');
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
-                  );
-                }
+                // Close dialog even if deletion failed
+                Navigator.pop(context);
               }
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),

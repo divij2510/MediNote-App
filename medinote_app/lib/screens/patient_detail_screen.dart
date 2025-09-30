@@ -490,36 +490,22 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with RouteAwa
           ),
           TextButton(
             onPressed: () async {
-              // Store ScaffoldMessenger reference before any async operations
-              final scaffoldMessenger = ScaffoldMessenger.of(context);
-              // Close the dialog first
-              Navigator.pop(context);
+              // Store references before any async operations
+              final patientProvider = context.read<PatientProvider>();
+              final patientId = widget.patient.id!;
               
               try {
-                print('🗑️ Deleting patient: ${widget.patient.name} (ID: ${widget.patient.id})');
-                await context.read<PatientProvider>().deletePatient(widget.patient.id!);
+                print('🗑️ Deleting patient: ${widget.patient.name} (ID: $patientId)');
+                await patientProvider.deletePatient(patientId);
                 
-                // Check if widget is still mounted before navigating
-                if (mounted) {
-                  Navigator.pop(context);
-                  scaffoldMessenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('Patient deleted successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
+                // Close dialog first, then navigate back to patient list
+                Navigator.pop(context); // Close dialog
+                Navigator.pop(context); // Go back to patient list
+                // The provider will automatically update the UI
               } catch (e) {
                 print('🗑️ Delete patient error: $e');
-                // Handle error if widget is still mounted
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Error deleting patient: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                // Close dialog even if deletion failed
+                Navigator.pop(context);
               }
             },
             child: const Text('Delete'),
