@@ -385,7 +385,7 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        case 'session_end':
+        case 'session_end': {
           // Handle both active sessions and offline uploads
           const isActiveSession = wsManager.isSessionActive(sessionId);
           
@@ -450,6 +450,7 @@ wss.on('connection', (ws, req) => {
             sessionProperlyEnded = true;
             console.log(`🔍 sessionProperlyEnded after: ${sessionProperlyEnded}`);
           break;
+        }
 
 
         case 'session_pause':
