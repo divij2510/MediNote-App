@@ -1,0 +1,46 @@
+name: medinote_app
+description: "MediNote - Patient Management App"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+  
+  # HTTP requests
+  http: ^1.2.2
+  
+  # State management
+  provider: ^6.1.2
+  
+  # Local storage
+  shared_preferences: ^2.3.2
+  
+  # Audio recording and playback
+  record: ^6.1.1
+  sound_stream: ^0.4.2
+  audioplayers: ^6.0.0
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.0
+  
+  # WebSocket for audio streaming
+  web_socket_channel: ^3.0.0
+  
+  # Call interruption handling
+  phone_state: ^2.1.1
+  connectivity_plus: ^6.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
