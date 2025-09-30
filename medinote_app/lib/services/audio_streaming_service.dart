@@ -71,16 +71,12 @@ class AudioStreamingService with ChangeNotifier {
     
     if (_appLifecycleService!.isInBackground && _isStreaming) {
       print('📱 App went to background - switching to background WebSocket service');
-      // Notify offline service that app went to background
-      _offlineService?.handleAppBackgrounded();
       
       // Start background WebSocket service to maintain connection
       _startBackgroundService();
       
     } else if (_appLifecycleService!.isInForeground && _isStreaming) {
       print('📱 App came to foreground - switching back to foreground WebSocket');
-      // Notify offline service that app returned
-      _offlineService?.handleAppReturned();
       
       // Stop background service and resume normal WebSocket
       _stopBackgroundService();

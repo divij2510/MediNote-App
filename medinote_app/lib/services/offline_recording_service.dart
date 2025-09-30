@@ -24,15 +24,13 @@ class OfflineRecordingService with ChangeNotifier {
   final AudioStreamingService _streamingService = AudioStreamingService();
   
   bool _isOfflineRecording = false;
-  bool _isQuickReturn = false; // Flag to track if user quickly returned to app
   String? _currentOfflineSessionId;
   List<Map<String, dynamic>> _offlineChunks = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _uploadTimer;
-  Timer? _quickReturnTimer;
   
   // Getters
-  bool get isOfflineRecording => _isOfflineRecording && !_isQuickReturn;
+  bool get isOfflineRecording => _isOfflineRecording;
   String? get currentOfflineSessionId => _currentOfflineSessionId;
   int get offlineChunkCount => _offlineChunks.length;
   
@@ -55,32 +53,6 @@ class OfflineRecordingService with ChangeNotifier {
     _onUploadError = onUploadError;
   }
 
-  // Handle app returning to foreground quickly (like from camera)
-  void handleAppReturned() {
-    print('📱 App returned to foreground - checking for quick return');
-    
-    if (_isOfflineRecording && _offlineChunks.isNotEmpty) {
-      _isQuickReturn = true;
-      notifyListeners(); // Hide offline UI immediately
-      
-      // Set a timer to upload chunks quickly
-      _quickReturnTimer?.cancel();
-      _quickReturnTimer = Timer(const Duration(seconds: 2), () {
-        _uploadOfflineChunks();
-      });
-      
-      print('📱 Quick return detected - hiding offline UI and scheduling upload');
-    }
-  }
-
-  // Handle app going to background (like opening camera)
-  void handleAppBackgrounded() {
-    print('📱 App went to background - preparing for potential quick return');
-    
-    // Cancel any existing quick return timer
-    _quickReturnTimer?.cancel();
-    _isQuickReturn = false;
-  }
   
   // Start offline recording when network fails
   Future<void> startOfflineRecording(String sessionId) async {
@@ -175,10 +147,6 @@ class OfflineRecordingService with ChangeNotifier {
       await _clearOfflineChunks();
       await stopOfflineRecording();
       
-      // Reset quick return flag
-      _isQuickReturn = false;
-      notifyListeners();
-      
       print('✅ Successfully uploaded offline chunks');
       
       // Show success notification
@@ -271,7 +239,6 @@ class OfflineRecordingService with ChangeNotifier {
   void dispose() {
     _connectivitySubscription?.cancel();
     _uploadTimer?.cancel();
-    _quickReturnTimer?.cancel();
     super.dispose();
   }
 }
