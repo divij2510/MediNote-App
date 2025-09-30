@@ -3,10 +3,11 @@ import 'package:http/http.dart' as http;
 import '../models/patient.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://9pvwrvvp-8000.inc1.devtunnels.ms';
+  static const String baseUrl = 'https://medinote-app-production.up.railway.app';
   
   // Health check
   static Future<Map<String, dynamic>> checkHealth() async {
+    print('🏥 Health check URL: $baseUrl/health');
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/health'),
@@ -16,6 +17,9 @@ class ApiService {
           'User-Agent': 'MediNote-Flutter-App',
         },
       );
+      
+      print('🏥 Health check response status: ${response.statusCode}');
+      print('🏥 Health check response body: ${response.body}');
       
       if (response.statusCode == 200) {
         try {
@@ -66,9 +70,28 @@ class ApiService {
   }
 
   static Future<void> deletePatient(int id) async {
-    final response = await http.delete(Uri.parse('$baseUrl/patients/$id'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to delete patient');
+    print('🗑️ Attempting to delete patient with ID: $id');
+    print('🗑️ DELETE URL: $baseUrl/patients/$id');
+    
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/patients/$id'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'MediNote-Flutter-App',
+        },
+      );
+      
+      print('🗑️ Delete response status: ${response.statusCode}');
+      print('🗑️ Delete response body: ${response.body}');
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete patient: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('🗑️ Delete patient error: $e');
+      rethrow;
     }
   }
 

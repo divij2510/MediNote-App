@@ -191,6 +191,9 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
   Future<void> _savePatient() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Store ScaffoldMessenger reference before any async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     try {
       final patient = Patient(
         id: widget.patient?.id,
@@ -211,7 +214,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
       
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text('${patient.name} ${widget.isEditing ? 'updated' : 'added'} successfully'),
             backgroundColor: Colors.green,
@@ -220,7 +223,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text('Error: $e'),
             backgroundColor: Colors.red,

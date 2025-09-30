@@ -83,7 +83,11 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'User-Agent']
+}));
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -791,6 +795,8 @@ app.put('/patients/:id', (req, res) => {
 app.delete('/patients/:id', (req, res) => {
   const { id } = req.params;
   console.log(`🗑️ DELETE /patients/${id} - Deleting patient`);
+  console.log(`🗑️ Request headers:`, req.headers);
+  console.log(`🗑️ Request method:`, req.method);
   
   db.run('DELETE FROM patients WHERE id = ?', [id], function(err) {
     if (err) {

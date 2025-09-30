@@ -48,7 +48,8 @@ class _RecordingScreenState extends State<RecordingScreen>
     offlineService.setNotificationCallbacks(
       onUploadStart: (chunkCount) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          scaffoldMessenger.showSnackBar(
             SnackBar(
               content: Row(
                 children: [
@@ -65,7 +66,8 @@ class _RecordingScreenState extends State<RecordingScreen>
       },
       onUploadSuccess: (chunkCount) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          scaffoldMessenger.showSnackBar(
             SnackBar(
               content: Row(
                 children: [
@@ -82,7 +84,8 @@ class _RecordingScreenState extends State<RecordingScreen>
       },
       onUploadError: (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          scaffoldMessenger.showSnackBar(
             SnackBar(
               content: Row(
                 children: [
@@ -856,14 +859,16 @@ class _RecordingScreenState extends State<RecordingScreen>
       // Resume streaming with the existing session ID
       await streamingService.startStreaming(sessionId);
       
-      ScaffoldMessenger.of(context).showSnackBar(
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text('Resuming session: $sessionId'),
           backgroundColor: Colors.orange,
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text('Failed to resume session: $e'),
           backgroundColor: Colors.red,
@@ -902,7 +907,8 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red[600],
@@ -911,7 +917,8 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
 
   void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.green[600],
@@ -920,7 +927,8 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
 
   void _showInfoSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    scaffoldMessenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.blue[600],

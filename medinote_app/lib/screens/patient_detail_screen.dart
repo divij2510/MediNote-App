@@ -490,16 +490,19 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with RouteAwa
           ),
           TextButton(
             onPressed: () async {
+              // Store ScaffoldMessenger reference before any async operations
+              final scaffoldMessenger = ScaffoldMessenger.of(context);
               // Close the dialog first
               Navigator.pop(context);
               
               try {
+                print('🗑️ Deleting patient: ${widget.patient.name} (ID: ${widget.patient.id})');
                 await context.read<PatientProvider>().deletePatient(widget.patient.id!);
                 
                 // Check if widget is still mounted before navigating
                 if (mounted) {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  scaffoldMessenger.showSnackBar(
                     const SnackBar(
                       content: Text('Patient deleted successfully'),
                       backgroundColor: Colors.green,
@@ -507,9 +510,10 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with RouteAwa
                   );
                 }
               } catch (e) {
+                print('🗑️ Delete patient error: $e');
                 // Handle error if widget is still mounted
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  scaffoldMessenger.showSnackBar(
                     SnackBar(
                       content: Text('Error deleting patient: $e'),
                       backgroundColor: Colors.red,
